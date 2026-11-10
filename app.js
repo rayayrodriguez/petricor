@@ -54,6 +54,21 @@ const max = (a) => { const v = a.filter((x) => x != null); return v.length ? Mat
 const min = (a) => { const v = a.filter((x) => x != null); return v.length ? Math.min(...v) : null; };
 const sum = (a) => a.reduce((s, x) => s + (x || 0), 0);
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
+// Con el tono jaenero cambian palabras y textos; los números y unidades nunca
+const jae = () => estado.tono === 'jaenero';
+const J = (normal, jaenero) => (jae() ? jaenero : normal);
+const DESC_JAENERA = { 0: 'Cielo limpio', 1: 'Casi limpio', 2: 'Nubes y claros', 3: 'Nublado', 61: 'Lluvia flojita', 65: 'Llueve a mares', 80: 'Chaparrones flojos', 81: 'Chaparrones', 82: 'Chaparrones fuertes' };
+// Termómetro jaenero: una palabra para cómo se nota la temperatura
+function termometro(t) {
+  if (t == null) return '';
+  if (t <= 3) return 'pa quedarse arrecío';
+  if (t <= 9) return 'frío';
+  if (t <= 15) return 'fresquito';
+  if (t <= 24) return 'se está bien';
+  if (t <= 31) return 'calor';
+  if (t <= 37) return 'flama';
+  return 'tostanera';
+}
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const normalizar = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
 
@@ -384,8 +399,12 @@ function pintar(mod, lugar) {
   $('#lugar-nombre').textContent = lugar.gps ? `${lugar.nombre} · tu ubicación` : lugar.nombre;
   $('#hora-local').textContent = fmt(tz, { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(Date.now());
   $('#temp-ahora').innerHTML = `${r0(tAhora)}<span class="grado">°</span>`;
-  $('#estado-ahora').textContent = textoCodigo(h0.code);
-  $('#extremos').innerHTML = `Máx <b>${r0(hoyD.tmax)}°</b> · Mín <b>${r0(hoyD.tmin)}°</b> · Sensación <b>${r0(h0.sens)}°</b>`;
+  $('#estado-ahora').textContent = J(textoCodigo(h0.code), DESC_JAENERA[h0.code] || textoCodigo(h0.code));
+  $('#extremos').innerHTML = `Máx <b>${r0(hoyD.tmax)}°</b> · Mín <b>${r0(hoyD.tmin)}°</b> · Sensación <b>${r0(h0.sens)}°</b>`
+    + (jae() ? `<br><span class="termometro">${termometro(Math.round(h0.sens ?? h0.t))}</span>` : '');
+  $('#t-horas').textContent = J('Próximas 48 horas', 'Hoy y mañana, hora a hora');
+  $('#t-dias').textContent = J('Próximos 15 días', 'La quincena');
+  $('#nota-dias').textContent = J('Toca un día para ver el detalle', 'Toca un día pa ver el detalle');
 
   const avisos = avisosDe(lugar);
   const proximas3 = mod.horas.slice(k, k + 3);
@@ -421,8 +440,18 @@ function pintar(mod, lugar) {
     const ww = obsJaen.ww;
     if (ww >= 95) tipo = 'tormenta'; else if (ww >= 70 && ww <= 79) tipo = 'nieve'; else if (ww >= 50 && ww <= 69) tipo = 'lluvia'; else if (ww >= 40 && ww <= 49) tipo = 'niebla';
   }
+  // Si va a llover en las próximas dos horas y aún no llueve, el cielo se va cerrando y oscureciendo antes
+  let nubesCielo = h0.nubes ?? 40;
+  if (tipo === 'despejado' || tipo === 'pocas_nubes' || tipo === 'nubes' || tipo === 'cubierto') {
+    const llega = mod.horas.slice(k + 1, k + 3).findIndex((x) => (x.prec || 0) >= 0.2 && (x.prob == null || x.prob >= 40));
+    if (llega >= 0) {
+      const cerca = llega === 0 ? 1 : 0.6;
+      nubesCielo = Math.max(nubesCielo, 75 + 25 * cerca);
+      if (cerca === 1) tipo = 'cubierto'; else if (tipo === 'despejado' || tipo === 'pocas_nubes') tipo = 'nubes';
+    }
+  }
   const ahoraMs = Date.now(), ps = posicionSol(ahoraMs, lugar.lat, lugar.lon), pl = posicionLuna(ahoraMs, lugar.lat, lugar.lon), fl = faseLuna(ahoraMs);
-  cielo.set({ tipo, fase, solPos, nubes: h0.nubes ?? 40, viento: h0.viento ?? 8, intensidad: h0.prec || 0,
+  cielo.set({ tipo, fase, solPos, nubes: nubesCielo, viento: h0.viento ?? 8, racha: h0.racha ?? null, dirViento: h0.dir ?? 270, intensidad: h0.prec || 0,
     altSol: ps.altitud, azSol: ps.azimut, altLuna: pl.altitud, azLuna: pl.azimut, luna: fl.fase, iluminada: fl.iluminada,
     lat: lugar.lat, tsl: tiempoSidereo(ahoraMs, lugar.lon), planetas: planetas(ahoraMs, lugar.lat, lugar.lon),
     poblacion: lugar.poblacion ?? (lugar.id === 'jaen' ? 112000 : null) });
@@ -586,7 +615,7 @@ function pintarDetalles(mod, k, hoyD, lugar, tz) {
 
   // Viento
   tarjetas.push(`<article class="mosaico">
-    <h3>Viento</h3>
+    <h3>${J('Viento', 'Aire')}</h3>
     <div class="brujula" aria-hidden="true">
       <svg viewBox="0 0 100 100" width="92" height="92"><circle cx="50" cy="50" r="44" fill="none" stroke="rgba(255,255,255,.18)" stroke-width="1"/>
       ${Array.from({ length: 36 }, (_, i) => { const a = i * 10 * Math.PI / 180, l = i % 9 === 0 ? 7 : 3; return `<line x1="${50 + 44 * Math.sin(a)}" y1="${50 - 44 * Math.cos(a)}" x2="${50 + (44 - l) * Math.sin(a)}" y2="${50 - (44 - l) * Math.cos(a)}" stroke="rgba(255,255,255,${i % 9 === 0 ? 0.6 : 0.25})" stroke-width="1"/>`; }).join('')}
@@ -595,21 +624,21 @@ function pintarDetalles(mod, k, hoyD, lugar, tz) {
       </svg>
       <div class="brujula-valor"><b>${r0(viento)}</b><span>km/h</span></div>
     </div>
-    <p class="mosaico-pie">${beaufort(viento || 0)} del ${puntoCardinal(dir ?? 0)} · rachas hoy ${r0(racha)} km/h</p>
+    <p class="mosaico-pie">${jae() && racha >= 50 ? `Airazo del ${puntoCardinal(dir ?? 0)}: rachas hoy de ${r0(racha)} km/h` : `${beaufort(viento || 0)} del ${puntoCardinal(dir ?? 0)} · rachas hoy ${r0(racha)} km/h`}</p>
   </article>`);
 
   // Humedad
   tarjetas.push(`<article class="mosaico">
     <h3>Humedad</h3>
     <p class="mosaico-valor">${r0(humedad)}<small>%</small></p>
-    <p class="mosaico-pie">Punto de rocío ${r0(rocio)}°. ${humedad >= 85 ? 'Ambiente muy húmedo.' : humedad <= 30 ? 'Aire muy seco.' : 'Ambiente normal.'}</p>
+    <p class="mosaico-pie">Punto de rocío ${r0(rocio)}°. ${humedad >= 85 ? J('Ambiente muy húmedo.', 'Mucha humedad: la ropa tendida no se seca.') : humedad <= 30 ? J('Aire muy seco.', 'Aire muy seco: bebe agua.') : J('Ambiente normal.', 'Humedad normal.')}</p>
   </article>`);
 
   // Presión
   tarjetas.push(`<article class="mosaico">
     <h3>Presión</h3>
     <p class="mosaico-valor">${r0(presion)}<small>hPa</small></p>
-    <p class="mosaico-pie">${Math.abs(tendencia) < 0.6 ? 'Estable en las próximas horas.' : tendencia > 0 ? 'Subiendo: tiende a mejorar.' : 'Bajando: tiende a empeorar.'}</p>
+    <p class="mosaico-pie">${Math.abs(tendencia) < 0.6 ? J('Estable en las próximas horas.', 'Estable: el tiempo no cambia en unas horas.') : tendencia > 0 ? J('Subiendo: tiende a mejorar.', 'Subiendo: el tiempo se arregla.') : J('Bajando: tiende a empeorar.', 'Bajando: el tiempo se pone feo.')}</p>
   </article>`);
 
   // UV
@@ -618,7 +647,7 @@ function pintarDetalles(mod, k, hoyD, lugar, tz) {
       <h3>Índice UV</h3>
       <p class="mosaico-valor">${r0(hoyD.uv)}<small>${nivelUV(hoyD.uv)}</small></p>
       <div class="escala-uv"><span style="left:${clamp(hoyD.uv / 11 * 100, 0, 100)}%"></span></div>
-      <p class="mosaico-pie">${hoyD.uv >= 6 ? 'Protección solar entre las 12 y las 17.' : 'Sin necesidad especial de protección.'}</p>
+      <p class="mosaico-pie">${hoyD.uv >= 6 ? J('Protección solar entre las 12 y las 17.', 'Crema y gorra de 12 a 17: el sol pica.') : J('Sin necesidad especial de protección.', 'El sol no pica: sin protección especial.')}</p>
     </article>`);
   }
 
@@ -672,7 +701,7 @@ function pintarDetalles(mod, k, hoyD, lugar, tz) {
   tarjetas.push(`<article class="mosaico">
     <h3>Lluvia</h3>
     <p class="mosaico-valor">${n1(hoyD.prec)}<small>mm hoy</small></p>
-    <p class="mosaico-pie">${proxima ? `Próxima lluvia ${proxima.dia === mod.hoy ? 'hoy' : nombreDia(proxima.dia, mod.hoy, tz).toLowerCase()} hacia las ${horaTxt(proxima.ms, tz)}.` : 'Sin lluvia en las próximas 24 horas.'}${hoyD.prob != null ? ` Probabilidad hoy ${hoyD.prob}%.` : ''}</p>
+    <p class="mosaico-pie">${proxima ? `${J('Próxima lluvia', 'Agua')} ${proxima.dia === mod.hoy ? 'hoy' : nombreDia(proxima.dia, mod.hoy, tz).toLowerCase()} hacia las ${horaTxt(proxima.ms, tz)}.` : J('Sin lluvia en las próximas 24 horas.', 'Ni gota en las próximas 24 horas.')}${hoyD.prob != null ? ` Probabilidad hoy ${hoyD.prob}%.` : ''}</p>
   </article>`);
 
   $('#detalles').innerHTML = tarjetas.join('');
@@ -733,7 +762,7 @@ async function cargar(forzar = false) {
   } catch (e) {
     console.error(e);
     const cache = memoria[lugar.id];
-    $('#hora-local').textContent = cache ? 'Sin conexión: mostrando la última previsión guardada.' : 'No se pudo cargar la previsión. Comprueba la conexión y vuelve a intentarlo.';
+    $('#hora-local').textContent = cache ? J('Sin conexión: mostrando la última previsión guardada.', 'Sin cobertura: te enseño la última previsión guardada.') : J('No se pudo cargar la previsión. Comprueba la conexión y vuelve a intentarlo.', 'No hay manera de cargar la previsión. Mira la conexión y vuelve a probar.');
   } finally {
     cargando = false;
   }
@@ -1009,6 +1038,51 @@ $('#btn-recargar').addEventListener('click', () => { cerrarHoja($('#hoja-ajustes
     const dx = e.changedTouches[0].clientX - x0, dy = e.changedTouches[0].clientY - y0;
     if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5 && estado.lugares.length > 1) irA(estado.actual + (dx < 0 ? 1 : -1));
     x0 = null;
+  });
+})();
+
+// Tirar hacia abajo desde arriba del todo para actualizar
+(() => {
+  const ind = $('#tirar'), aro = ind.querySelector('.tirar-aro'), cont = $('#contenido'), UMBRAL = 72, LARGO = 88;
+  let y0 = null, x0 = null, activo = false, d = 0;
+  const hojaAbierta = () => document.querySelector('.hoja:not([hidden])');
+  const poner = (dist) => {
+    ind.style.transform = `translateY(${Math.min(dist, UMBRAL + 24) - UMBRAL}px)`;
+    ind.style.opacity = String(Math.min(1, dist / 36));
+    aro.style.strokeDashoffset = String(LARGO * (1 - Math.min(1, dist / UMBRAL)));
+    // El contenido baja con el dedo y deja hueco al indicador
+    cont.style.transform = `translateY(${Math.min(dist, UMBRAL + 24) * 0.75}px)`;
+  };
+  const esconder = () => {
+    ind.classList.add('suelta'); cont.classList.add('suelta');
+    ind.style.transform = 'translateY(-110px)'; ind.style.opacity = '0'; cont.style.transform = '';
+    setTimeout(() => { ind.classList.remove('suelta', 'cargando'); cont.classList.remove('suelta'); aro.style.strokeDashoffset = ''; }, 320);
+  };
+  document.addEventListener('touchstart', (e) => {
+    activo = false; d = 0;
+    y0 = window.scrollY > 0 || hojaAbierta() || cargando || e.touches.length > 1 ? null : e.touches[0].clientY;
+    x0 = e.touches[0].clientX;
+  }, { passive: true });
+  document.addEventListener('touchmove', (e) => {
+    if (y0 == null) return;
+    const dy = e.touches[0].clientY - y0, dx = e.touches[0].clientX - x0;
+    if (!activo) {
+      if (dy > 10 && dy > Math.abs(dx) * 1.4) activo = true;
+      else if (Math.abs(dx) > 10 || dy < -4) { y0 = null; return; } else return;
+    }
+    if (e.cancelable) e.preventDefault();
+    d = dy * 0.55;
+    ind.classList.remove('suelta'); cont.classList.remove('suelta');
+    poner(d);
+  }, { passive: false });
+  document.addEventListener('touchend', async () => {
+    if (!activo) { y0 = null; return; }
+    activo = false; y0 = null;
+    if (d < UMBRAL) { esconder(); return; }
+    ind.classList.add('suelta', 'cargando'); cont.classList.add('suelta');
+    ind.style.transform = 'translateY(0px)'; ind.style.opacity = '1'; cont.style.transform = `translateY(${UMBRAL * 0.75}px)`;
+    await Promise.all([cargar(true), new Promise((r) => setTimeout(r, 700))]);
+    esconder();
   });
 })();
 

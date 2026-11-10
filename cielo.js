@@ -488,6 +488,7 @@ export class Cielo {
     const { ctx, w, h } = this, e = this.estado, g = grupo(e.tipo);
     if (!this.luz) { ctx.fillStyle = '#0b1226'; ctx.fillRect(0, 0, w, h); return; }
     const L = this.luz, { alt } = this.sol0;
+    this.actualizarViento(dt);
     const fondo = ctx.createLinearGradient(0, 0, 0, h);
     fondo.addColorStop(0, rgba(L.cielo[0])); fondo.addColorStop(0.62, rgba(mezclar(L.cielo[0], L.cielo[1], 0.85))); fondo.addColorStop(1, rgba(L.cielo[1]));
     ctx.fillStyle = fondo; ctx.fillRect(0, 0, w, h);
@@ -497,7 +498,7 @@ export class Cielo {
     this.sol();
     this.nubes(dt);
     if (this.bancos.length) this.niebla(dt);
-    if (this.cortinas) this.cortina();
+    if (this.cortinas) this.cortina(dt);
     if (this.capas.length && this.capas[0].gotas.length) this.lluvia(dt);
     if (this.copos.length) this.nieve(dt);
     if (g === 'tormenta') this.tormenta(dt);
@@ -518,6 +519,21 @@ export class Cielo {
       this.mezcla = Math.max(0, this.mezcla - dt / 1.8);
     }
   }
+
+  // Viento del momento: el medio previsto, con rachas irregulares hasta la racha prevista.
+  // Mirando al sur, el viento del oeste empuja hacia la izquierda y el de levante hacia la derecha
+  actualizarViento(dt) {
+    const e = this.estado;
+    const base = Math.max(0, e.viento ?? 8), racha = Math.max(base, e.racha ?? base * 1.5);
+    const g = this.reducido ? 0 : Math.max(0, Math.sin(this.t * 0.37) * Math.sin(this.t * 0.11 + 1.3));
+    const objetivo = base + (racha - base) * g * g * 1.6;
+    this.vEff = this.vEff == null || !dt ? base : this.vEff + (objetivo - this.vEff) * Math.min(1, dt * 1.5);
+    let lateral = -Math.sin(((e.dirViento ?? 270) + 180) * RAD);
+    if (Math.abs(lateral) < 0.3) lateral = lateral < 0 ? -0.3 : 0.3;
+    this.lateral = lateral;
+  }
+
+  inclinacion() { return Math.max(-0.6, Math.min(0.6, (this.lateral * this.vEff) / 60)); }
 
   // De grados a pantalla: el horizonte queda a media altura y se mira hacia el sur, con el este a la izquierda
   aPantalla(alt, az) {
@@ -630,7 +646,7 @@ export class Cielo {
 
   nubes(dt) {
     const { ctx } = this, e = this.estado;
-    const deriva = 0.4 + (e.viento || 5) / 20;
+    const deriva = (0.15 + this.vEff / 12) * this.lateral;
     for (const c of this.capasNubes) {
       this.franja(c, dt, c.v * deriva);
       if (this.flash > 0.05) {
@@ -643,18 +659,20 @@ export class Cielo {
   }
 
   niebla(dt) {
-    for (const b of this.bancos) this.franja(b, dt, b.v);
+    // Los dos velos van con el viento, uno más despacio que otro para dar profundidad
+    for (const b of this.bancos) this.franja(b, dt, Math.abs(b.v) * (0.3 + this.vEff / 15) * this.lateral * (b.v > 0 ? 1 : 0.55));
   }
 
-  cortina() {
+  cortina(dt) {
     const { ctx, w, h } = this, e = this.estado;
-    const inc = Math.max(-0.35, Math.min(0.35, (e.viento || 0) / 70));
-    const ancho = w * 2.2, vel = 40 + (e.viento || 0) * 5;
+    const inc = this.inclinacion();
+    const ancho = w * 2.2;
+    this.cortX = (this.cortX || 0) + dt * (30 + this.vEff * 5) * this.lateral;
     ctx.save();
     ctx.globalAlpha = grupo(e.tipo) === 'tormenta' ? 0.16 : 0.12;
     ctx.transform(1, 0, -inc, 1, 0, 0);
     for (const [k, s] of [[1, 0], [1.6, 0.4]]) {
-      let x0 = -(((this.t * vel * k) / ancho + s) % 1) * ancho - h * Math.abs(inc);
+      let x0 = -((((this.cortX * k) / ancho + s) % 1) + 1) % 1 * ancho - h * Math.abs(inc);
       for (; x0 < w + h * Math.abs(inc); x0 += ancho) ctx.drawImage(this.cortinaTex, x0, h * 0.1, ancho + 1, h * 0.95);
     }
     ctx.restore();
@@ -662,7 +680,7 @@ export class Cielo {
 
   lluvia(dt) {
     const { ctx, w, h } = this, e = this.estado, g = grupo(e.tipo);
-    const inc = Math.max(-0.35, Math.min(0.35, (e.viento || 0) / 70)); // inclinación por el viento
+    const inc = this.inclinacion();
     const tono = (g === 'tormenta' ? mezclar(this.luz.lluvia, [150, 170, 210], 0.15) : this.luz.lluvia).map(Math.round).join(',');
     ctx.lineCap = 'round';
     for (const c of this.capas) {
@@ -707,7 +725,7 @@ export class Cielo {
 
   nieve(dt) {
     const { ctx, w, h } = this, e = this.estado;
-    const deriva = (e.viento || 0) * 0.8;
+    const deriva = this.vEff * 0.8 * this.lateral;
     for (const c of this.copos) {
       c.y += c.v * dt; c.x += (Math.sin(this.t * 0.8 + c.f) * 14 * (c.z + 1) * 0.4 + deriva * (c.z + 1) * 0.3) * dt;
       if (c.y > h + 6) { c.y = -6; c.x = Math.random() * w; }

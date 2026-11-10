@@ -20,7 +20,7 @@
 }
 
 * { box-sizing: border-box; }
-html, body { margin: 0; min-height: 100%; background: var(--fondo); color: var(--tinta); }
+html, body { margin: 0; min-height: 100%; background: var(--fondo); color: var(--tinta); overscroll-behavior-y: none; }
 body {
   font-family: var(--f-texto);
   font-size: 15px;
@@ -30,6 +30,25 @@ body {
   overflow-x: hidden;
 }
 [hidden] { display: none !important; }
+
+/* Tirar hacia abajo para actualizar */
+.tirar {
+  position: fixed; left: 50%; top: calc(env(safe-area-inset-top, 0px) + 62px); z-index: 30;
+  width: 40px; height: 40px; margin-left: -20px; border-radius: 50%;
+  background: rgba(16, 22, 36, 0.6); border: 1px solid rgba(255, 255, 255, 0.14);
+  -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+  transform: translateY(-110px); opacity: 0; pointer-events: none;
+}
+.tirar svg { display: block; width: 40px; height: 40px; }
+.tirar-aro { fill: none; stroke: #ffd27a; stroke-width: 2.4; stroke-linecap: round; stroke-dasharray: 88; stroke-dashoffset: 88; transform: rotate(-90deg); transform-origin: 20px 20px; }
+.tirar-gota { fill: rgba(255, 255, 255, 0.9); transform-origin: 20px 22px; }
+.tirar.suelta, #contenido.suelta { transition: transform 0.3s ease, opacity 0.3s ease; }
+.tirar.cargando .tirar-aro { stroke-dashoffset: 58; animation: girar 0.8s linear infinite; }
+.tirar.cargando .tirar-gota { animation: latir 0.8s ease-in-out infinite alternate; }
+@keyframes girar { from { transform: rotate(-90deg); } to { transform: rotate(270deg); } }
+@keyframes latir { from { transform: scale(0.88); } to { transform: scale(1.04); } }
+.termometro { display: inline-block; margin-top: 6px; padding: 3px 10px; border-radius: 99px; font-size: 13px; font-weight: 600;
+  background: rgba(255, 255, 255, 0.12); border: 1px solid rgba(255, 255, 255, 0.16); }
 button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
 button:focus-visible, input:focus-visible, textarea:focus-visible, summary:focus-visible, .linea-tiempo:focus-visible {
   outline: 2px solid var(--acento); outline-offset: 2px; border-radius: 10px;
