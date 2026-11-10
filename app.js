@@ -400,6 +400,9 @@ function pintar(mod, lugar) {
   $('#hora-local').textContent = fmt(tz, { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(Date.now());
   $('#temp-ahora').innerHTML = `${r0(tAhora)}<span class="grado">°</span>`;
   $('#estado-ahora').textContent = J(textoCodigo(h0.code), DESC_JAENERA[h0.code] || textoCodigo(h0.code));
+  const esDiaAhora = alturaSol(Date.now(), lugar.lat, lugar.lon) > -0.8;
+  const clave = `${h0.code}|${esDiaAhora}`;
+  if ($('#tirar-icono').dataset.clave !== clave) { $('#tirar-icono').innerHTML = icono(h0.code, esDiaAhora, 24); $('#tirar-icono').dataset.clave = clave; }
   $('#extremos').innerHTML = `Máx <b>${r0(hoyD.tmax)}°</b> · Mín <b>${r0(hoyD.tmin)}°</b> · Sensación <b>${r0(h0.sens)}°</b>`
     + (jae() ? `<br><span class="termometro">${termometro(Math.round(h0.sens ?? h0.t))}</span>` : '');
   $('#t-horas').textContent = J('Próximas 48 horas', 'Hoy y mañana, hora a hora');
@@ -416,7 +419,8 @@ function pintar(mod, lugar) {
     deltaManana: manana ? manana.tmax - hoyD.tmax : 0, nubes: h0.nubes ?? 50, esDia: h0.esDia,
     tormenta: hoyD.tormenta, avisoNivel: avisos.filter((a) => Date.parse(a.inicio) < Date.now() + 36 * 3600000).reduce((m, a) => Math.max(m, a.nivel), 0),
     campanaAceituna: (lugar.provincia === 'jaen' || lugar.provincia === 'cordoba') && (mes >= 11 || mes <= 2),
-    enJaen: lugar.provincia === 'jaen'
+    enJaen: lugar.provincia === 'jaen',
+    enJaenCapital: lugar.id === 'jaen' || lugar.estacion === ESTACION.id || /^ja[eé]n$/i.test(lugar.nombre || '')
   };
   ultimoCtx = ctx;
   $('#frase').textContent = frase(ctx, estado.tono);
@@ -696,6 +700,28 @@ function pintarDetalles(mod, k, hoyD, lugar, tz) {
     </article>`);
   }
 
+  // La aceituna: en campaña y con tono jaenero, si hoy y mañana se puede ir al tajo
+  const mes = +mod.hoy.slice(5, 7);
+  if (jae() && (lugar.provincia === 'jaen' || lugar.provincia === 'cordoba') && (mes >= 11 || mes <= 2)) {
+    const iHoy = mod.dias.indexOf(hoyD), manana = mod.dias[iHoy + 1];
+    const llovido = sum(mod.horas.slice(Math.max(0, k - 24), k).map((x) => x.prec || 0));
+    const veredicto = (d, barro) => {
+      if ((d.prec || 0) >= 1 || (d.prob ?? 0) >= 60) return ['no', `Agua: ${n1(d.prec || 0)} mm${d.prob != null ? ` y un ${d.prob} % de probabilidad` : ''}. No se coge aceituna.`];
+      if (barro >= 5) return ['regular', `Barro: han caído ${n1(barro)} mm. El tajo va a estar pesado.`];
+      if ((d.racha || 0) >= 50) return ['regular', `Airazo: rachas de ${r0(d.racha)} km/h. Malo pa varear.`];
+      if (d.tmin <= 0) return ['regular', `Helada: ${r0(d.tmin)}° a primera hora. Se empieza más tarde.`];
+      return ['si', `Buen día de aceituna: seco y ${r0(d.tmax)}° de máxima.`];
+    };
+    const filas = [['Hoy', veredicto(hoyD, llovido)]];
+    if (manana) filas.push(['Mañana', veredicto(manana, (hoyD.prec || 0))]);
+    const etiqueta = { si: 'Se puede', regular: 'Regular', no: 'No' };
+    tarjetas.unshift(`<article class="mosaico ancho">
+      <h3>La aceituna</h3>
+      <ul class="aceituna">${filas.map(([n, [v, t]]) => `<li><span class="dia-aceituna">${n}</span><b class="nivel-aceituna ${v}">${etiqueta[v]}</b><span>${esc(t)}</span></li>`).join('')}</ul>
+      <p class="mosaico-pie">Según la lluvia, el viento y la helada previstos.</p>
+    </article>`);
+  }
+
   // Lluvia hoy
   const proxima = mod.horas.slice(k, k + 24).find((x) => (x.prec || 0) >= 0.2 && (x.prob == null || x.prob >= 40));
   tarjetas.push(`<article class="mosaico">
@@ -937,7 +963,10 @@ function zonasAvisos() {
 }
 function marcarCodigoDesfasado() {
   const p = leerLS('petricor.push');
-  if (p && JSON.stringify(p.zonas) !== JSON.stringify(zonasAvisos())) { p.desfasado = true; guardarLS('petricor.push', p); }
+  if (!p || !p.codigo) return;
+  const tonoAntes = p.tono || 'neutro', tonoAhora = estado.tono === 'jaenero' ? 'jaenero' : 'neutro';
+  const cambiaTono = (tonoAntes === 'jaenero') !== (tonoAhora === 'jaenero');
+  if (JSON.stringify(p.zonas) !== JSON.stringify(zonasAvisos()) || cambiaTono) { p.desfasado = true; p.motivo = cambiaTono ? 'tono' : 'zonas'; guardarLS('petricor.push', p); }
 }
 
 function esIPhone() { return /iphone|ipad|ipod/i.test(navigator.userAgent); }
@@ -956,7 +985,7 @@ function pintarPush() {
   if (p && p.codigo && !p.desfasado) {
     html += `<p>Avisos preparados en este iPhone. Si aún no lo has hecho, guarda este código en GitHub:</p>`;
   } else if (p && p.desfasado) {
-    html += `<p>Has cambiado tus zonas: genera el código otra vez y sustitúyelo en GitHub.</p>`;
+    html += `<p>${p.motivo === 'tono' ? 'Has cambiado el tono y las notificaciones van con él' : 'Has cambiado tus zonas'}: genera el código otra vez y sustitúyelo en GitHub.</p>`;
   }
   html += `<button class="boton-ancho" id="btn-push">${p && p.codigo ? 'Generar el código otra vez' : 'Activar avisos en este iPhone'}</button>`;
   if (p && p.codigo) {
@@ -1001,9 +1030,9 @@ async function activarPush() {
     }
     if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64u.de(claves.pub) });
     const zonas = zonasAvisos();
-    const cfg = { v: 1, sub: sub.toJSON(), vapid: { d: claves.d }, zonas, nivel: 3, sitio: location.origin + location.pathname };
+    const cfg = { v: 1, sub: sub.toJSON(), vapid: { d: claves.d }, zonas, nivel: 3, sitio: location.origin + location.pathname, tono: estado.tono };
     const codigo = btoa(unescape(encodeURIComponent(JSON.stringify(cfg))));
-    guardarLS('petricor.push', { codigo, zonas, desfasado: false });
+    guardarLS('petricor.push', { codigo, zonas, tono: estado.tono, desfasado: false });
     pintarPush();
   } catch (e) {
     console.error(e);
@@ -1019,7 +1048,7 @@ function pintarTonos() {
   // Qué hace cada tono y cómo resumiría hoy el tiempo del lugar que estás viendo
   $('#tonos-info').innerHTML = TONOS.map((t) => `<li class="${estado.tono === t.id ? 'activo' : ''}"><b>${t.nombre}.</b> ${esc(t.desc)}${ultimoCtx ? `<span class="ejemplo">Hoy: «${esc(frase(ultimoCtx, t.id))}»</span>` : ''}</li>`).join('');
   $('#tonos').querySelectorAll('button').forEach((b) => b.addEventListener('click', () => {
-    estado.tono = b.dataset.t; guardar(); pintarTonos();
+    estado.tono = b.dataset.t; guardar(); marcarCodigoDesfasado(); pintarTonos(); pintarPush();
     const lugar = lugarActual(); if (memoria[lugar.id]) pintar(memoria[lugar.id], lugar);
   }));
 }
@@ -1043,7 +1072,7 @@ $('#btn-recargar').addEventListener('click', () => { cerrarHoja($('#hoja-ajustes
 
 // Tirar hacia abajo desde arriba del todo para actualizar
 (() => {
-  const ind = $('#tirar'), aro = ind.querySelector('.tirar-aro'), cont = $('#contenido'), UMBRAL = 72, LARGO = 88;
+  const ind = $('#tirar'), aro = ind.querySelector('.tirar-aro'), cont = $('#contenido'), UMBRAL = 72, LARGO = 107;
   let y0 = null, x0 = null, activo = false, d = 0;
   const hojaAbierta = () => document.querySelector('.hoja:not([hidden])');
   const poner = (dist) => {

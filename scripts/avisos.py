@@ -14,6 +14,20 @@ TIPOS = {1: "viento", 2: "nieve y hielo", 3: "tormentas", 4: "niebla", 5: "tempe
          6: "temperaturas mínimas", 7: "fenómenos costeros", 8: "incendios", 9: "aludes", 10: "lluvias",
          12: "inundaciones", 13: "lluvias e inundaciones"}
 NIVELES = {2: "amarillo", 3: "naranja", 4: "rojo"}
+# Con el tono jaenero, una frase delante del texto oficial de AEMET, que se manda siempre completo
+CONSEJO_JAENERO = {
+    1: "Airazo: recoge las macetas del patio y lo que tengas suelto.",
+    2: "¡La irgen, nieve! Cuidado en la carretera.",
+    3: "Tormenta: recoge lo del patio y desenchufa la tele.",
+    4: "Niebla cerrada: por la carretera, despacio y con luces.",
+    5: "Tostanera: persianas abajo y nada de sol a mediodía.",
+    6: "Frío pa quedarse arrecío: abrígate bien.",
+    7: "Mala mar: lejos de la orilla.",
+    8: "Riesgo de incendio: nada de fuego en el campo.",
+    10: "Agua en cantidad: sin paraguas te calas.",
+    12: "Riesgo de inundaciones: ojo con cauces y bajos.",
+    13: "Agua en cantidad: ojo con cauces y bajos.",
+}
 
 
 def num(valor):
@@ -144,7 +158,10 @@ def notificar_dispositivo(nombre, bruto, est, avisos, ahora):
     huella = hashlib.sha256(bruto.encode()).hexdigest()[:16]
     if est.get("config") != huella:
         try:
-            enviar(cfg, "Petricor", "Avisos activados en este móvil. Te escribiré si hay aviso naranja o rojo en tus zonas.", "activado")
+            texto = ("Avisos activados en este móvil. Si hay aviso naranja o rojo en tus zonas, te escribo, ea."
+                     if cfg.get("tono") == "jaenero" else
+                     "Avisos activados en este móvil. Te escribiré si hay aviso naranja o rojo en tus zonas.")
+            enviar(cfg, "Petricor", texto, "activado")
         except Exception as e:
             codigo = getattr(getattr(e, "response", None), "status_code", "")
             marcar(f"error al enviar la confirmación: {type(e).__name__} {codigo}".strip())
@@ -173,8 +190,17 @@ def notificar_dispositivo(nombre, bruto, est, avisos, ahora):
             continue
         titulo = f'Aviso {NIVELES.get(g["nivel"], "")} por {g["fenomeno"]}'
         cuerpo = f'{" y ".join(g["nombres"])}. {fecha_corta(g["inicio"])} a {fecha_corta(g["fin"])}. {g["descripcion"]}'.strip()
+        if cfg.get("tono") == "jaenero":
+            if g["nivel"] >= 4:
+                titulo = "¡La irgen! " + titulo
+            consejo = CONSEJO_JAENERO.get(g["tipo"])
+            if g["nivel"] >= 4:
+                consejo = "Contíconeso: hoy no se sale si no hace falta. " + (consejo or "")
+            if consejo:
+                cuerpo = f"{consejo.strip()} {cuerpo}"
+
         try:
-            enviar(cfg, titulo, cuerpo[:300], clave)
+            enviar(cfg, titulo, cuerpo[:420], clave)
             est["enviados"][clave] = ahora.isoformat(timespec="minutes")
         except Exception as e:
             print(f"{nombre}: no se pudo enviar la notificación:", type(e).__name__, str(e)[:200])

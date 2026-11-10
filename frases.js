@@ -132,10 +132,21 @@ export function elegirSituacion(ctx) {
   return 'nubes';
 }
 
+// Fiestas de Jaén capital. Con el tono jaenero tienen su propia frase, salvo que haya algo más importante
+const FIESTAS = {
+  '01-16': { seco: 'Noche de lumbres de San Antón: {tmin} grados de madrugada. Arrímate a la candela, ea.', agua: 'Noche de lumbres con un {prob} % de lluvia. A ver si aguantan las candelas.' },
+  '06-11': { seco: 'Día de la Virgen de la Capilla: {tmax} grados. La ofrenda, mejor temprano y a la sombra.', agua: 'Virgen de la Capilla con un {prob} % de lluvia: paraguas pa la ofrenda.' },
+  '10-18': { seco: 'Feria de San Lucas y sin agua, que no es poco: {tmax} grados por la tarde.', agua: 'San Lucas y agua, como manda la tradición: {prob} % de lluvia.' },
+  '11-25': { seco: 'Santa Catalina: {tmax} grados pa subir al castillo con el chorizo y las sardinas.', agua: 'Santa Catalina con un {prob} % de lluvia. Al castillo, con paraguas.' }
+};
+const MAS_IMPORTANTE = new Set(['aviso_rojo', 'aviso_naranja', 'tormenta', 'nieve', 'calor_extremo']);
+
 // Las frases que empiezan por @ citan sitios de Jaén capital: solo salen si el lugar está en la provincia
 export function frase(ctx, tono = 'neutro') {
   const sit = elegirSituacion(ctx);
   let lista = (F[sit] && (F[sit][tono] || F[sit].neutro)) || F.nubes.neutro;
+  const fiesta = FIESTAS[(ctx.fecha || '').slice(5)];
+  if (tono === 'jaenero' && ctx.enJaenCapital && fiesta && !MAS_IMPORTANTE.has(sit)) lista = [(ctx.probHoy || 0) >= 50 ? fiesta.agua : fiesta.seco];
   const validas = lista.filter((x) => !x.startsWith('@') || ctx.enJaen);
   if (validas.length) lista = validas;
   const elegida = lista[hashDia(ctx.fecha + sit + tono) % lista.length].replace(/^@/, '');
