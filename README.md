@@ -9,7 +9,7 @@ Web personal del tiempo para Jaén y otros lugares. Se instala en el iPhone como
 - **Lluvia:** con ECMWF 9 km. La probabilidad sale de los 51 escenarios del conjunto de ECMWF.
 - **Avisos oficiales de AEMET:** vía MeteoAlarm, más un indicador propio de riesgo de tormenta.
 - **Notificaciones al iPhone:** para avisos naranja y rojo, aunque la app esté cerrada.
-- **Fondo animado:** cambia según el tiempo y la hora.
+- **Fondo animado:** el color y la luz siguen la altura real del sol, y de noche se ven las estrellas, la luna y los planetas que hay sobre el lugar a esa hora.
 - **Detalle diario:** viento, humedad, presión, UV, sol, luna, calidad del aire y polen.
 
 ## Cómo funciona
@@ -37,3 +37,4 @@ Web personal del tiempo para Jaén y otros lugares. Se instala en el iPhone como
 - Avisos: AEMET a través de MeteoAlarm, CC BY 4.0.
 - Observaciones: estación de AEMET de Jaén (08417), vía Ogimet.
 - Polen y calidad del aire: Copernicus CAMS.
+- Estrellas: catálogo Hipparcos en la versión de d3-celestial (Olaf Frohn, BSD-3). Planetas con los elementos orbitales de Paul Schlyter.

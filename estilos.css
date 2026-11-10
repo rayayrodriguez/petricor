@@ -223,6 +223,11 @@ input[type='checkbox'] { accent-color: var(--acento); width: 18px; height: 18px;
 .segmentos { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; padding: 4px; border-radius: 14px; background: rgba(255, 255, 255, 0.08); }
 .segmentos button { padding: 9px 6px; border-radius: 10px; font-size: 14px; color: var(--tinta-2); }
 .segmentos button[aria-checked='true'] { background: rgba(255, 255, 255, 0.16); color: var(--tinta); font-weight: 600; }
+.tonos-info { list-style: none; margin: 10px 0 8px; padding: 0; display: grid; gap: 8px; }
+.tonos-info li { font-size: 13px; color: var(--tinta-3); line-height: 1.4; padding: 8px 10px; border-radius: 12px; border: 1px solid transparent; }
+.tonos-info li.activo { color: var(--tinta-2); border-color: rgba(255, 255, 255, 0.14); background: rgba(255, 255, 255, 0.05); }
+.tonos-info b { color: var(--tinta); font-weight: 600; }
+.tonos-info .ejemplo { display: block; margin-top: 3px; font-style: italic; }
 textarea { width: 100%; font: 12px ui-monospace, Menlo, monospace; color: var(--tinta); background: rgba(0, 0, 0, 0.25); border: 1px solid var(--linea); border-radius: 12px; padding: 10px; resize: none; word-break: break-all; }
 .pasos { margin: 0; padding-left: 20px; font-size: 13px; color: var(--tinta-2); display: grid; gap: 4px; }
 .aviso-texto { font-size: 13px; color: var(--acento); margin: 0; }

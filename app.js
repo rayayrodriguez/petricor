@@ -2,7 +2,7 @@ import { ZONAS, PROVINCIAS, ALIAS_PROVINCIA } from './zonas.js';
 import { frase, TONOS } from './frases.js';
 import { Cielo } from './cielo.js';
 import { icono, tipoCodigo, textoCodigo, gota, flecha } from './iconos.js';
-import { alturaSol, solDia, faseLuna } from './astro.js';
+import { alturaSol, solDia, faseLuna, posicionSol, posicionLuna, planetas, tiempoSidereo } from './astro.js';
 
 // ---------------------------------------------------------------- configuración
 
@@ -396,8 +396,10 @@ function pintar(mod, lugar) {
     nieveHoy: hoyD.nieve >= 0.5, niebla: tipoCodigo(h0.code) === 'niebla', rachaMax: hoyD.racha || 0,
     deltaManana: manana ? manana.tmax - hoyD.tmax : 0, nubes: h0.nubes ?? 50, esDia: h0.esDia,
     tormenta: hoyD.tormenta, avisoNivel: avisos.filter((a) => Date.parse(a.inicio) < Date.now() + 36 * 3600000).reduce((m, a) => Math.max(m, a.nivel), 0),
-    campanaAceituna: (lugar.provincia === 'jaen' || lugar.provincia === 'cordoba') && (mes >= 11 || mes <= 2)
+    campanaAceituna: (lugar.provincia === 'jaen' || lugar.provincia === 'cordoba') && (mes >= 11 || mes <= 2),
+    enJaen: lugar.provincia === 'jaen'
   };
+  ultimoCtx = ctx;
   $('#frase').textContent = frase(ctx, estado.tono);
 
   pintarAvisos(avisos, hoyD, mod, tz);
@@ -419,7 +421,11 @@ function pintar(mod, lugar) {
     const ww = obsJaen.ww;
     if (ww >= 95) tipo = 'tormenta'; else if (ww >= 70 && ww <= 79) tipo = 'nieve'; else if (ww >= 50 && ww <= 69) tipo = 'lluvia'; else if (ww >= 40 && ww <= 49) tipo = 'niebla';
   }
-  cielo.set({ tipo, fase, solPos, nubes: h0.nubes ?? 40, viento: h0.viento ?? 8, intensidad: h0.prec || 0, luna: faseLuna(Date.now()).fase });
+  const ahoraMs = Date.now(), ps = posicionSol(ahoraMs, lugar.lat, lugar.lon), pl = posicionLuna(ahoraMs, lugar.lat, lugar.lon), fl = faseLuna(ahoraMs);
+  cielo.set({ tipo, fase, solPos, nubes: h0.nubes ?? 40, viento: h0.viento ?? 8, intensidad: h0.prec || 0,
+    altSol: ps.altitud, azSol: ps.azimut, altLuna: pl.altitud, azLuna: pl.azimut, luna: fl.fase, iluminada: fl.iluminada,
+    lat: lugar.lat, tsl: tiempoSidereo(ahoraMs, lugar.lon), planetas: planetas(ahoraMs, lugar.lat, lugar.lon),
+    poblacion: lugar.poblacion ?? (lugar.id === 'jaen' ? 112000 : null) });
   document.querySelector('meta[name="theme-color"]').setAttribute('content', fase === 'noche' ? '#0b1226' : '#2a4f86');
 }
 
@@ -779,7 +785,7 @@ async function buscarLugares(q) {
   const res = [];
   try {
     const d = await json(`${API_GEO}?name=${encodeURIComponent(q)}&count=8&language=es`);
-    for (const r of d.results || []) res.push({ nombre: r.name, region: [r.admin2 || r.admin1, r.country].filter(Boolean).join(', '), lat: r.latitude, lon: r.longitude, pais: (r.country_code || '').toLowerCase(), prov: r.admin2 || '' });
+    for (const r of d.results || []) res.push({ nombre: r.name, region: [r.admin2 || r.admin1, r.country].filter(Boolean).join(', '), lat: r.latitude, lon: r.longitude, pais: (r.country_code || '').toLowerCase(), prov: r.admin2 || '', poblacion: r.population || null });
   } catch (e) { /* se intenta con OpenStreetMap */ }
   if (res.length < 2) {
     try {
@@ -788,7 +794,8 @@ async function buscarLugares(q) {
         const a = r.address || {};
         const nombre = a.city || a.town || a.village || a.municipality || r.name;
         if (res.some((x) => Math.abs(x.lat - r.lat) < 0.02 && Math.abs(x.lon - r.lon) < 0.02)) continue;
-        res.push({ nombre, region: [a.province || a.county || a.state, a.country].filter(Boolean).join(', '), lat: +r.lat, lon: +r.lon, pais: (a.country_code || '').toLowerCase(), prov: a.province || a.county || '' });
+        res.push({ nombre, region: [a.province || a.county || a.state, a.country].filter(Boolean).join(', '), lat: +r.lat, lon: +r.lon, pais: (a.country_code || '').toLowerCase(), prov: a.province || a.county || '',
+          poblacion: a.city ? 100000 : a.town ? 10000 : a.village ? 1500 : null });
       }
     } catch (e) { /* sin resultados */ }
   }
@@ -806,7 +813,7 @@ async function nuevoLugar(r, gps = false) {
   }
   const zonas = pais === 'es' && provincia ? PROVINCIAS[provincia].zonas.filter((z) => +z.slice(2) < 840) : [];
   return { id: 'l' + Date.now().toString(36), nombre, region, lat: +(+r.lat).toFixed(4), lon: +(+r.lon).toFixed(4), elev: null,
-    provincia, zonas, pais, estacion: null, gps, avisos: false };
+    provincia, zonas, pais, estacion: null, gps, avisos: false, poblacion: r.poblacion ?? null };
 }
 
 function pintarMisLugares() {
@@ -977,8 +984,11 @@ async function activarPush() {
 
 // ---------------------------------------------------------------- ajustes
 
+let ultimoCtx = null;
 function pintarTonos() {
   $('#tonos').innerHTML = TONOS.map((t) => `<button role="radio" aria-checked="${estado.tono === t.id}" data-t="${t.id}">${t.nombre}</button>`).join('');
+  // Qué hace cada tono y cómo resumiría hoy el tiempo del lugar que estás viendo
+  $('#tonos-info').innerHTML = TONOS.map((t) => `<li class="${estado.tono === t.id ? 'activo' : ''}"><b>${t.nombre}.</b> ${esc(t.desc)}${ultimoCtx ? `<span class="ejemplo">Hoy: «${esc(frase(ultimoCtx, t.id))}»</span>` : ''}</li>`).join('');
   $('#tonos').querySelectorAll('button').forEach((b) => b.addEventListener('click', () => {
     estado.tono = b.dataset.t; guardar(); pintarTonos();
     const lugar = lugarActual(); if (memoria[lugar.id]) pintar(memoria[lugar.id], lugar);
