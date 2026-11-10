@@ -2,7 +2,8 @@ name: Avisos y observación
 
 on:
   schedule:
-    - cron: "*/15 * * * *"
+    # Minutos desplazados: a las en punto GitHub va más cargado y retrasa o salta ejecuciones
+    - cron: "7,22,37,52 * * * *"
   workflow_dispatch:
   push:
     branches: [main]
