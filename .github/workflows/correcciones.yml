@@ -20,8 +20,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
           cache: pip
@@ -31,6 +31,6 @@ jobs:
       - name: Comparar previsiones con la estación de Jaén
         env:
           PETRICOR_DATOS: ${{ github.workspace }}/datos
-        run: python scripts/correcciones.py
+        run: python correcciones.py
         working-directory: scripts
       - run: scripts/datos.sh guardar "Correcciones del día"

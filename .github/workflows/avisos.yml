@@ -20,8 +20,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
           cache: pip
@@ -32,6 +32,6 @@ jobs:
         env:
           PUSH_CONFIG: ${{ secrets.PUSH_CONFIG }}
           PETRICOR_DATOS: ${{ github.workspace }}/datos
-        run: python scripts/avisos.py
+        run: python avisos.py
         working-directory: scripts
       - run: scripts/datos.sh guardar "Avisos y observación"
