@@ -240,6 +240,14 @@ textarea { width: 100%; font: 12px ui-monospace, Menlo, monospace; color: var(--
 @media (max-width: 370px) {
   .dia-fila { grid-template-columns: 4em 28px 3em 2.2em 1fr 2.2em; gap: 6px; padding-inline: 12px; }
 }
+@keyframes entrar { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+#contenido.entra > * { animation: entrar 0.7s cubic-bezier(0.2, 0.75, 0.25, 1) both; }
+#contenido.entra > :nth-child(2) { animation-delay: 0.06s; }
+#contenido.entra > :nth-child(3) { animation-delay: 0.12s; }
+#contenido.entra > :nth-child(4) { animation-delay: 0.18s; }
+#contenido.entra > :nth-child(5) { animation-delay: 0.24s; }
+#contenido.entra > :nth-child(n+6) { animation-delay: 0.3s; }
 @media (prefers-reduced-motion: reduce) {
   .hoja-panel, .hoja-fondo { transition: none; }
+  #contenido.entra > * { animation: none; }
 }

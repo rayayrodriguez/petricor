@@ -29,6 +29,7 @@ Web personal del tiempo para Jaén y otros lugares. Se instala en el iPhone como
    1. Abre la app desde el icono y ve a *Ajustes → Activar avisos en este iPhone*.
    2. Copia el código.
    3. En GitHub, ve a *Settings → Secrets and variables → Actions → New repository secret* y crea uno llamado `PUSH_CONFIG` con ese código.
+   4. Para otro móvil, repite los pasos en ese móvil y guarda su código como `PUSH_CONFIG_2`. Para un tercero, usa `PUSH_CONFIG_3`. Cada móvil tiene su propio código.
 
 ## Fuentes y licencias
 

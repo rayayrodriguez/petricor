@@ -118,39 +118,44 @@ def enviar(cfg, titulo, cuerpo, etiqueta):
             ttl=6 * 3600)
 
 
-def notificar(avisos, ahora):
-    bruto = os.environ.get("PUSH_CONFIG", "").strip()
-    estado = comun.leer_json("push_estado.json", {"enviados": {}, "config": ""})
-    estado.setdefault("enviados", {})
+SECRETOS = ["PUSH_CONFIG", "PUSH_CONFIG_2", "PUSH_CONFIG_3"]
+
+
+def leer_codigo(bruto):
+    cfg = json.loads(base64.b64decode(bruto + "=" * (-len(bruto) % 4)).decode("utf-8"))
+    assert cfg["sub"]["endpoint"] and cfg["vapid"]["d"]
+    return cfg
+
+
+def notificar_dispositivo(nombre, bruto, est, avisos, ahora):
+    """Un móvil = un secreto. Cada uno guarda sus propios avisos enviados."""
+    est.setdefault("enviados", {})
 
     def marcar(texto):
-        # Deja constancia del estado (sin datos privados) para poder comprobarlo desde fuera
-        if estado.get("estado") != texto:
-            estado["estado"] = texto
-            estado["comprobado"] = ahora.isoformat(timespec="minutes")
-            comun.escribir_json("push_estado.json", estado)
+        if est.get("estado") != texto:
+            est["estado"] = texto
+            est["comprobado"] = ahora.isoformat(timespec="minutes")
 
-    if not bruto:
-        marcar("sin código: falta el secreto PUSH_CONFIG")
-        return
     try:
-        cfg = json.loads(base64.b64decode(bruto + "=" * (-len(bruto) % 4)).decode("utf-8"))
-        assert cfg["sub"]["endpoint"] and cfg["vapid"]["d"]
+        cfg = leer_codigo(bruto)
     except Exception:
         marcar("código no válido: vuelve a copiarlo desde la app")
         return
     huella = hashlib.sha256(bruto.encode()).hexdigest()[:16]
-    cambios = False
-    if estado.get("config") != huella:
+    if est.get("config") != huella:
         try:
-            enviar(cfg, "Petricor", "Avisos activados. Te escribiré si hay aviso naranja o rojo en tus zonas.", "activado")
+            enviar(cfg, "Petricor", "Avisos activados en este móvil. Te escribiré si hay aviso naranja o rojo en tus zonas.", "activado")
         except Exception as e:
             codigo = getattr(getattr(e, "response", None), "status_code", "")
             marcar(f"error al enviar la confirmación: {type(e).__name__} {codigo}".strip())
             return
-        estado["config"] = huella
-        estado["zonas"] = sorted(cfg.get("zonas", []))
-        cambios = True
+        est["config"] = huella
+        est["zonas"] = sorted(cfg.get("zonas", []))
+        # Si el código es de otro móvil, ese móvil no ha recibido nada todavía
+        equipo = hashlib.sha256(cfg["sub"]["endpoint"].encode()).hexdigest()[:16]
+        if est.get("equipo") and est["equipo"] != equipo:
+            est["enviados"] = {}
+        est["equipo"] = equipo
     marcar("ok")
     zonas = set(cfg.get("zonas", []))
     minimo = int(cfg.get("nivel", 3))
@@ -164,22 +169,61 @@ def notificar(avisos, ahora):
         g["claves_zona"].append(hashlib.sha256(f'{a["zona"]}|{a["tipo"]}|{a["nivel"]}|{a["inicio"]}'.encode()).hexdigest()[:16])
     for g in grupos.values():
         clave = hashlib.sha256(f'{g["tipo"]}|{g["nivel"]}|{g["inicio"]}|{g["fin"]}'.encode()).hexdigest()[:16]
-        if clave in estado["enviados"] or any(k in estado["enviados"] for k in g["claves_zona"]):
+        if clave in est["enviados"] or any(k in est["enviados"] for k in g["claves_zona"]):
             continue
         titulo = f'Aviso {NIVELES.get(g["nivel"], "")} por {g["fenomeno"]}'
         cuerpo = f'{" y ".join(g["nombres"])}. {fecha_corta(g["inicio"])} a {fecha_corta(g["fin"])}. {g["descripcion"]}'.strip()
         try:
             enviar(cfg, titulo, cuerpo[:300], clave)
-            estado["enviados"][clave] = ahora.isoformat(timespec="minutes")
-            cambios = True
+            est["enviados"][clave] = ahora.isoformat(timespec="minutes")
         except Exception as e:
-            print("No se pudo enviar la notificación:", type(e).__name__, str(e)[:200])
+            print(f"{nombre}: no se pudo enviar la notificación:", type(e).__name__, str(e)[:200])
     limite = ahora - dt.timedelta(days=10)
-    viejos = [k for k, v in estado["enviados"].items() if dt.datetime.fromisoformat(v) < limite]
-    for k in viejos:
-        del estado["enviados"][k]
-        cambios = True
-    if cambios:
+    for k in [k for k, v in est["enviados"].items() if dt.datetime.fromisoformat(v) < limite]:
+        del est["enviados"][k]
+
+
+def notificar(avisos, ahora):
+    estado = comun.leer_json("push_estado.json", {})
+    antes = json.dumps(estado, sort_keys=True)
+    dispositivos = estado.setdefault("dispositivos", {})
+    # Formato antiguo, de un solo móvil: pasa entero al primer secreto para no repetir avisos ya enviados
+    if any(k in estado for k in ("config", "enviados", "zonas")):
+        primero = dispositivos.setdefault("PUSH_CONFIG", {})
+        for k in ("config", "zonas", "enviados"):
+            if k in estado:
+                primero.setdefault(k, estado.pop(k))
+        if "estado" in estado:
+            primero.setdefault("estado", estado["estado"])
+            primero.setdefault("comprobado", estado.get("comprobado"))
+
+    activos = []
+    for nombre in SECRETOS:
+        bruto = os.environ.get(nombre, "").strip()
+        if bruto:
+            activos.append(nombre)
+            notificar_dispositivo(nombre, bruto, dispositivos.setdefault(nombre, {}), avisos, ahora)
+        elif nombre in dispositivos:
+            # Secreto quitado: se conserva lo enviado por si vuelve a ponerse, sin repetir avisos
+            d = dispositivos[nombre]
+            if d.get("estado") != "sin código":
+                d["estado"] = "sin código"
+                d["comprobado"] = ahora.isoformat(timespec="minutes")
+            limite = ahora - dt.timedelta(days=10)
+            for k in [k for k, v in d.get("enviados", {}).items() if dt.datetime.fromisoformat(v) < limite]:
+                del d["enviados"][k]
+
+    # Resumen sin datos privados para poder comprobarlo desde fuera
+    if not activos:
+        resumen = "sin código: falta el secreto PUSH_CONFIG"
+    else:
+        fallos = [f"{n}: {dispositivos[n]['estado']}" for n in activos if dispositivos[n].get("estado") != "ok"]
+        resumen = "ok" if not fallos else "; ".join(fallos)
+    if estado.get("estado") != resumen:
+        estado["estado"] = resumen
+        estado["comprobado"] = ahora.isoformat(timespec="minutes")
+    estado["moviles"] = len(activos)
+    if json.dumps(estado, sort_keys=True) != antes:
         comun.escribir_json("push_estado.json", estado)
 
 

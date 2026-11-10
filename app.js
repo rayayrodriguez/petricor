@@ -349,7 +349,17 @@ function horaActual(mod) {
   return k;
 }
 
+// Al abrir la app o cambiar de lugar, las tarjetas entran con un leve desplazamiento
+let ultimoPintado = null;
+function entrada(id) {
+  if (ultimoPintado === id) return;
+  ultimoPintado = id;
+  const m = $('#contenido');
+  m.classList.remove('entra'); void m.offsetWidth; m.classList.add('entra');
+}
+
 function pintar(mod, lugar) {
+  entrada(lugar.id);
   const tz = mod.tz;
   mod.hoy = partes(Date.now(), tz).dia;
   const k = horaActual(mod);
@@ -405,8 +415,6 @@ function pintar(mod, lugar) {
   const fase = alt < -6 ? 'noche' : alt < 6 ? (Date.now() < mediodia ? 'alba' : 'ocaso') : 'dia';
   const solPos = sd.salida && sd.puesta ? (Date.now() - sd.salida) / (sd.puesta - sd.salida) : 0.5;
   let tipo = tipoCodigo(h0.code);
-  if (tipo === 'lluvia_fuerte') tipo = 'lluvia';
-  if (tipo === 'llovizna') tipo = 'lluvia';
   if (lugar.estacion === ESTACION.id && obsJaen && obsJaen.ww != null) {
     const ww = obsJaen.ww;
     if (ww >= 95) tipo = 'tormenta'; else if (ww >= 70 && ww <= 79) tipo = 'nieve'; else if (ww >= 50 && ww <= 69) tipo = 'lluvia'; else if (ww >= 40 && ww <= 49) tipo = 'niebla';
@@ -920,8 +928,8 @@ function pintarPush() {
       <button class="boton-ancho" id="btn-copiar">Copiar código</button>
       <ol class="pasos">
         <li>Abre <b>github.com/${esc(REPO.owner)}/${esc(REPO.repo)}</b> → <b>Settings</b> → <b>Secrets and variables</b> → <b>Actions</b>.</li>
-        <li>Pulsa <b>New repository secret</b> (o edita el que ya existe).</li>
-        <li>Nombre: <b>PUSH_CONFIG</b>. Valor: pega el código.</li>
+        <li>Pulsa <b>New repository secret</b>. Si este móvil ya tenía código, edita su secreto en vez de crear otro.</li>
+        <li>Nombre: <b>PUSH_CONFIG</b> para el primer móvil, <b>PUSH_CONFIG_2</b> para el segundo y <b>PUSH_CONFIG_3</b> para el tercero. Valor: pega el código.</li>
         <li>En unos 15 minutos te llegará una notificación de confirmación.</li>
       </ol>`;
   }

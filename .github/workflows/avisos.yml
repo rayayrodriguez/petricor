@@ -31,6 +31,8 @@ jobs:
       - name: Avisos, observación y notificaciones
         env:
           PUSH_CONFIG: ${{ secrets.PUSH_CONFIG }}
+          PUSH_CONFIG_2: ${{ secrets.PUSH_CONFIG_2 }}
+          PUSH_CONFIG_3: ${{ secrets.PUSH_CONFIG_3 }}
           PETRICOR_DATOS: ${{ github.workspace }}/datos
         run: python avisos.py
         working-directory: scripts
