@@ -154,14 +154,20 @@ def notificar(avisos, ahora):
     marcar("ok")
     zonas = set(cfg.get("zonas", []))
     minimo = int(cfg.get("nivel", 3))
+    # Un mismo aviso suele afectar a varias zonas a la vez: se manda una sola notificación
+    grupos = {}
     for a in avisos:
         if a["zona"] not in zonas or a["nivel"] < minimo:
             continue
-        clave = hashlib.sha256(f'{a["zona"]}|{a["tipo"]}|{a["nivel"]}|{a["inicio"]}'.encode()).hexdigest()[:16]
-        if clave in estado["enviados"]:
+        g = grupos.setdefault((a["tipo"], a["nivel"], a["inicio"], a["fin"]), {**a, "nombres": [], "claves_zona": []})
+        g["nombres"].append(a["nombre"])
+        g["claves_zona"].append(hashlib.sha256(f'{a["zona"]}|{a["tipo"]}|{a["nivel"]}|{a["inicio"]}'.encode()).hexdigest()[:16])
+    for g in grupos.values():
+        clave = hashlib.sha256(f'{g["tipo"]}|{g["nivel"]}|{g["inicio"]}|{g["fin"]}'.encode()).hexdigest()[:16]
+        if clave in estado["enviados"] or any(k in estado["enviados"] for k in g["claves_zona"]):
             continue
-        titulo = f'Aviso {NIVELES.get(a["nivel"], "")} por {a["fenomeno"]}'
-        cuerpo = f'{a["nombre"]}. {fecha_corta(a["inicio"])} a {fecha_corta(a["fin"])}. {a["descripcion"]}'.strip()
+        titulo = f'Aviso {NIVELES.get(g["nivel"], "")} por {g["fenomeno"]}'
+        cuerpo = f'{" y ".join(g["nombres"])}. {fecha_corta(g["inicio"])} a {fecha_corta(g["fin"])}. {g["descripcion"]}'.strip()
         try:
             enviar(cfg, titulo, cuerpo[:300], clave)
             estado["enviados"][clave] = ahora.isoformat(timespec="minutes")
