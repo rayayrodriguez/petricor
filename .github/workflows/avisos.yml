@@ -1,0 +1,37 @@
+name: Avisos y observación
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ["scripts/**", ".github/workflows/avisos.yml"]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: datos
+  cancel-in-progress: false
+
+jobs:
+  avisos:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: scripts/requirements.txt
+      - run: pip install -r scripts/requirements.txt
+      - run: scripts/datos.sh preparar
+      - name: Avisos, observación y notificaciones
+        env:
+          PUSH_CONFIG: ${{ secrets.PUSH_CONFIG }}
+          PETRICOR_DATOS: ${{ github.workspace }}/datos
+        run: python scripts/avisos.py
+        working-directory: scripts
+      - run: scripts/datos.sh guardar "Avisos y observación"

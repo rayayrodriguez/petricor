@@ -1,0 +1,36 @@
+name: Correcciones diarias
+
+on:
+  schedule:
+    - cron: "17 7 * * *"
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ["scripts/correcciones.py", "scripts/comun.py", ".github/workflows/correcciones.yml"]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: datos
+  cancel-in-progress: false
+
+jobs:
+  correcciones:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: scripts/requirements.txt
+      - run: pip install -r scripts/requirements.txt
+      - run: scripts/datos.sh preparar
+      - name: Comparar previsiones con la estación de Jaén
+        env:
+          PETRICOR_DATOS: ${{ github.workspace }}/datos
+        run: python scripts/correcciones.py
+        working-directory: scripts
+      - run: scripts/datos.sh guardar "Correcciones del día"

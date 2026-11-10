@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Petricor</title>
+<meta name="description" content="El tiempo de Jaén y de tus lugares, con los modelos que mejor aciertan y corrección local.">
+<meta name="theme-color" content="#0b1226">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Petricor">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,200..700&family=Inter:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="estilos.css">
+</head>
+<body>
+<canvas id="cielo" aria-hidden="true"></canvas>
+
+<div class="app" id="app">
+  <header class="barra">
+    <button class="boton-icono" id="btn-lugares" aria-label="Lugares">
+      <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M12 21s-6.5-6.1-6.5-11a6.5 6.5 0 0 1 13 0c0 4.9-6.5 11-6.5 11z" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="10" r="2.3" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+    </button>
+    <div class="puntos" id="puntos" role="tablist" aria-label="Tus lugares"></div>
+    <button class="boton-icono" id="btn-ajustes" aria-label="Ajustes">
+      <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="16" cy="7" r="2.2" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="10" cy="17" r="2.2" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+    </button>
+  </header>
+
+  <main id="contenido">
+    <section class="hero" id="hero" aria-live="polite">
+      <p class="lugar" id="lugar-nombre">Jaén</p>
+      <p class="hora-local" id="hora-local">Cargando previsión…</p>
+      <div class="temp-grande" id="temp-ahora">–</div>
+      <p class="estado" id="estado-ahora"></p>
+      <p class="extremos" id="extremos"></p>
+      <p class="frase" id="frase"></p>
+      <p class="medicion" id="medicion" hidden></p>
+    </section>
+
+    <section id="avisos" class="avisos" hidden></section>
+
+    <section class="tarjeta" aria-labelledby="t-horas">
+      <div class="tarjeta-cab">
+        <h2 id="t-horas">Próximas 48 horas</h2>
+        <span class="nota" id="nota-horas"></span>
+      </div>
+      <div class="linea-tiempo" id="linea-tiempo" tabindex="0" aria-label="Previsión por horas, desliza para ver más"></div>
+    </section>
+
+    <section class="tarjeta" aria-labelledby="t-dias">
+      <div class="tarjeta-cab">
+        <h2 id="t-dias">Próximos 15 días</h2>
+        <span class="nota">Toca un día para ver el detalle</span>
+      </div>
+      <ol class="dias" id="dias"></ol>
+    </section>
+
+    <section class="rejilla" id="detalles" aria-label="Detalles de hoy"></section>
+
+    <section class="tarjeta precision" id="precision" aria-labelledby="t-precision">
+      <div class="tarjeta-cab"><h2 id="t-precision">Cómo se calcula</h2></div>
+      <div id="precision-cuerpo"></div>
+    </section>
+
+    <footer class="pie" id="pie">
+      <p>Previsión: Open-Meteo (CC BY 4.0) con modelos de DWD, ECMWF, NOAA, Météo-France, Met Office y ECCC. Avisos oficiales: AEMET vía MeteoAlarm. Observación de Jaén: estación AEMET 08417 vía Ogimet. Polen y aire: Copernicus CAMS.</p>
+      <p id="actualizado"></p>
+    </footer>
+  </main>
+</div>
+
+<!-- Hoja: lugares -->
+<div class="hoja" id="hoja-lugares" hidden role="dialog" aria-modal="true" aria-labelledby="h-lugares">
+  <div class="hoja-fondo" data-cerrar></div>
+  <div class="hoja-panel">
+    <div class="hoja-cab"><h2 id="h-lugares">Lugares</h2><button class="boton-texto" data-cerrar>Listo</button></div>
+    <label class="campo-busqueda" for="buscar">
+      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M16 16l4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+      <input id="buscar" type="search" placeholder="Buscar un pueblo o ciudad" autocomplete="off" enterkeyhint="search">
+    </label>
+    <ul class="resultados" id="resultados"></ul>
+    <button class="boton-ancho" id="btn-ubicacion">
+      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 3v3M12 18v3M3 12h3M18 12h3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="12" cy="12" r="5" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+      Añadir mi ubicación actual
+    </button>
+    <p class="aviso-texto" id="ubicacion-msg" hidden></p>
+    <h3 class="subtitulo">Tus lugares</h3>
+    <ul class="mis-lugares" id="mis-lugares"></ul>
+  </div>
+</div>
+
+<!-- Hoja: ajustes -->
+<div class="hoja" id="hoja-ajustes" hidden role="dialog" aria-modal="true" aria-labelledby="h-ajustes">
+  <div class="hoja-fondo" data-cerrar></div>
+  <div class="hoja-panel">
+    <div class="hoja-cab"><h2 id="h-ajustes">Ajustes</h2><button class="boton-texto" data-cerrar>Listo</button></div>
+    <h3 class="subtitulo">Personalidad de los resúmenes</h3>
+    <div class="segmentos" id="tonos" role="radiogroup" aria-label="Tono de los resúmenes"></div>
+
+    <h3 class="subtitulo">Avisos naranja y rojo en el móvil</h3>
+    <div id="push-cuerpo"></div>
+
+    <h3 class="subtitulo">Acerca de Petricor</h3>
+    <p class="texto-suave">Para cada dato usa el modelo que mejor ha acertado en Jaén: temperatura de los dos primeros días con ICON corregido, a partir del tercero la media de varios modelos corregida, y lluvia con ECMWF. Cada mañana se comparan las previsiones con lo que midió la estación de AEMET y se recalculan las correcciones.</p>
+    <button class="boton-ancho" id="btn-recargar">Actualizar ahora</button>
+  </div>
+</div>
+
+<!-- Hoja: detalle de aviso -->
+<div class="hoja" id="hoja-aviso" hidden role="dialog" aria-modal="true" aria-labelledby="h-aviso">
+  <div class="hoja-fondo" data-cerrar></div>
+  <div class="hoja-panel">
+    <div class="hoja-cab"><h2 id="h-aviso">Avisos oficiales</h2><button class="boton-texto" data-cerrar>Cerrar</button></div>
+    <div id="aviso-cuerpo"></div>
+  </div>
+</div>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>
