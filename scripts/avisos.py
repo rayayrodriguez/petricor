@@ -120,20 +120,38 @@ def enviar(cfg, titulo, cuerpo, etiqueta):
 
 def notificar(avisos, ahora):
     bruto = os.environ.get("PUSH_CONFIG", "").strip()
+    estado = comun.leer_json("push_estado.json", {"enviados": {}, "config": ""})
+    estado.setdefault("enviados", {})
+
+    def marcar(texto):
+        # Deja constancia del estado (sin datos privados) para poder comprobarlo desde fuera
+        if estado.get("estado") != texto:
+            estado["estado"] = texto
+            estado["comprobado"] = ahora.isoformat(timespec="minutes")
+            comun.escribir_json("push_estado.json", estado)
+
     if not bruto:
+        marcar("sin código: falta el secreto PUSH_CONFIG")
         return
     try:
         cfg = json.loads(base64.b64decode(bruto + "=" * (-len(bruto) % 4)).decode("utf-8"))
+        assert cfg["sub"]["endpoint"] and cfg["vapid"]["d"]
     except Exception:
-        print("El código de avisos guardado en PUSH_CONFIG no es válido.")
+        marcar("código no válido: vuelve a copiarlo desde la app")
         return
-    estado = comun.leer_json("push_estado.json", {"enviados": {}, "config": ""})
     huella = hashlib.sha256(bruto.encode()).hexdigest()[:16]
     cambios = False
     if estado.get("config") != huella:
-        enviar(cfg, "Petricor", "Avisos activados. Te escribiré si hay aviso naranja o rojo en tus zonas.", "activado")
+        try:
+            enviar(cfg, "Petricor", "Avisos activados. Te escribiré si hay aviso naranja o rojo en tus zonas.", "activado")
+        except Exception as e:
+            codigo = getattr(getattr(e, "response", None), "status_code", "")
+            marcar(f"error al enviar la confirmación: {type(e).__name__} {codigo}".strip())
+            return
         estado["config"] = huella
+        estado["zonas"] = sorted(cfg.get("zonas", []))
         cambios = True
+    marcar("ok")
     zonas = set(cfg.get("zonas", []))
     minimo = int(cfg.get("nivel", 3))
     for a in avisos:
