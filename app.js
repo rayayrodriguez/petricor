@@ -1072,24 +1072,30 @@ $('#btn-recargar').addEventListener('click', () => { cerrarHoja($('#hoja-ajustes
 
 // Tirar hacia abajo desde arriba del todo para actualizar
 (() => {
-  const ind = $('#tirar'), aro = ind.querySelector('.tirar-aro'), cont = $('#contenido'), UMBRAL = 72, LARGO = 107;
+  const ind = $('#tirar'), aro = ind.querySelector('.tirar-aro'), ico = $('#tirar-icono'), txt = $('#tirar-texto');
+  const cont = $('#contenido'), UMBRAL = 84, LARGO = 107;
   let y0 = null, x0 = null, activo = false, d = 0;
   const hojaAbierta = () => document.querySelector('.hoja:not([hidden])');
+  const espera = (ms) => new Promise((r) => setTimeout(r, ms));
   const poner = (dist) => {
-    ind.style.transform = `translateY(${Math.min(dist, UMBRAL + 24) - UMBRAL}px)`;
-    ind.style.opacity = String(Math.min(1, dist / 36));
-    aro.style.strokeDashoffset = String(LARGO * (1 - Math.min(1, dist / UMBRAL)));
-    // El contenido baja con el dedo y deja hueco al indicador
-    cont.style.transform = `translateY(${Math.min(dist, UMBRAL + 24) * 0.75}px)`;
+    const k = Math.min(1, dist / UMBRAL);
+    ind.style.transform = `translateY(${Math.min(dist, UMBRAL + 30) - UMBRAL}px)`;
+    ind.style.opacity = String(Math.min(1, dist / 40));
+    aro.style.strokeDashoffset = String(LARGO * (1 - k));
+    // El icono crece y gira con el dedo; al pasar el umbral da un pequeño salto
+    ico.style.transform = `scale(${0.55 + 0.5 * k + (k >= 1 ? 0.08 : 0)}) rotate(${(dist * 1.4) % 360}deg)`;
+    txt.textContent = k >= 1 ? J('Suelta para actualizar', 'Suelta y lo miro') : J('Tira para actualizar', 'Tira pa actualizar');
+    // El contenido baja con el dedo y deja hueco al indicador y al texto
+    cont.style.transform = `translateY(${Math.min(dist, UMBRAL + 30) * 1.15}px)`;
   };
   const esconder = () => {
     ind.classList.add('suelta'); cont.classList.add('suelta');
-    ind.style.transform = 'translateY(-110px)'; ind.style.opacity = '0'; cont.style.transform = '';
-    setTimeout(() => { ind.classList.remove('suelta', 'cargando'); cont.classList.remove('suelta'); aro.style.strokeDashoffset = ''; }, 320);
+    ind.style.transform = 'translateY(-130px)'; ind.style.opacity = '0'; cont.style.transform = '';
+    setTimeout(() => { ind.classList.remove('suelta', 'cargando', 'hecho'); cont.classList.remove('suelta'); aro.style.strokeDashoffset = ''; ico.style.transform = ''; }, 380);
   };
   document.addEventListener('touchstart', (e) => {
     activo = false; d = 0;
-    y0 = window.scrollY > 0 || hojaAbierta() || cargando || e.touches.length > 1 ? null : e.touches[0].clientY;
+    y0 = window.scrollY > 0 || hojaAbierta() || cargando || ind.classList.contains('cargando') || e.touches.length > 1 ? null : e.touches[0].clientY;
     x0 = e.touches[0].clientX;
   }, { passive: true });
   document.addEventListener('touchmove', (e) => {
@@ -1100,7 +1106,7 @@ $('#btn-recargar').addEventListener('click', () => { cerrarHoja($('#hoja-ajustes
       else if (Math.abs(dx) > 10 || dy < -4) { y0 = null; return; } else return;
     }
     if (e.cancelable) e.preventDefault();
-    d = dy * 0.55;
+    d = dy * 0.6;
     ind.classList.remove('suelta'); cont.classList.remove('suelta');
     poner(d);
   }, { passive: false });
@@ -1109,8 +1115,14 @@ $('#btn-recargar').addEventListener('click', () => { cerrarHoja($('#hoja-ajustes
     activo = false; y0 = null;
     if (d < UMBRAL) { esconder(); return; }
     ind.classList.add('suelta', 'cargando'); cont.classList.add('suelta');
-    ind.style.transform = 'translateY(0px)'; ind.style.opacity = '1'; cont.style.transform = `translateY(${UMBRAL * 0.75}px)`;
-    await Promise.all([cargar(true), new Promise((r) => setTimeout(r, 700))]);
+    ico.style.transform = '';
+    ind.style.transform = 'translateY(0px)'; ind.style.opacity = '1'; cont.style.transform = `translateY(${UMBRAL * 1.15}px)`;
+    txt.textContent = J('Actualizando…', 'Un momentito…');
+    // Se ve al menos un par de balanceos aunque la descarga sea instantánea
+    await Promise.all([cargar(true), espera(1800)]);
+    ind.classList.remove('cargando'); ind.classList.add('hecho');
+    txt.textContent = J('Actualizado', '¡Ea, ya está!');
+    await espera(800);
     esconder();
   });
 })();

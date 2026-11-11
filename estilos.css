@@ -33,21 +33,35 @@ body {
 
 /* Tirar hacia abajo para actualizar */
 .tirar {
-  position: fixed; left: 50%; top: calc(env(safe-area-inset-top, 0px) + 62px); z-index: 30;
-  width: 40px; height: 40px; margin-left: -20px; border-radius: 50%;
-  background: rgba(16, 22, 36, 0.6); border: 1px solid rgba(255, 255, 255, 0.14);
-  -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
-  transform: translateY(-110px); opacity: 0; pointer-events: none;
+  position: fixed; left: 50%; top: calc(env(safe-area-inset-top, 0px) + 60px); z-index: 30;
+  width: 60px; height: 60px; margin-left: -30px; border-radius: 50%;
+  background: rgba(16, 22, 36, 0.62); border: 1px solid rgba(255, 255, 255, 0.16);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px);
+  transform: translateY(-130px); opacity: 0; pointer-events: none;
 }
-.tirar > svg { display: block; width: 40px; height: 40px; }
-.tirar-icono { position: absolute; inset: 0; display: grid; place-items: center; transform-origin: 50% 50%; }
-.tirar-icono svg { width: 24px; height: 24px; }
-.tirar-aro { fill: none; stroke: #ffd27a; stroke-width: 2.4; stroke-linecap: round; stroke-dasharray: 107; stroke-dashoffset: 107; transform: rotate(-90deg); transform-origin: 20px 20px; }
-.tirar.suelta, #contenido.suelta { transition: transform 0.3s ease, opacity 0.3s ease; }
-.tirar.cargando .tirar-aro { stroke-dashoffset: 70; animation: girar 0.8s linear infinite; }
-.tirar.cargando .tirar-icono { animation: latir 0.8s ease-in-out infinite alternate; }
+.tirar > svg { display: block; width: 60px; height: 60px; }
+.tirar-icono { position: absolute; inset: 0; display: grid; place-items: center; transform-origin: 50% 55%; }
+.tirar-icono svg { width: 38px; height: 38px; }
+.tirar-aro { fill: none; stroke: #ffd27a; stroke-width: 2.2; stroke-linecap: round; stroke-dasharray: 107; stroke-dashoffset: 107; transform: rotate(-90deg); transform-origin: 20px 20px; }
+.tirar-texto {
+  position: absolute; top: 68px; left: 50%; transform: translateX(-50%); white-space: nowrap;
+  font-size: 12px; font-weight: 600; letter-spacing: 0.02em; color: var(--tinta);
+  padding: 4px 10px; border-radius: 99px; background: rgba(16, 22, 36, 0.55);
+  -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+}
+.tirar.suelta, #contenido.suelta { transition: transform 0.35s cubic-bezier(0.2, 0.8, 0.25, 1), opacity 0.35s ease; }
+.tirar.cargando .tirar-aro { stroke-dashoffset: 66; animation: girar 0.9s linear infinite; }
+.tirar.cargando .tirar-icono { animation: balanceo 0.9s ease-in-out infinite; }
+.tirar.hecho .tirar-icono { animation: listo 0.6s cubic-bezier(0.3, 1.6, 0.5, 1) both; }
+.tirar.hecho .tirar-aro { stroke-dashoffset: 0; stroke: #9ee6a0; transition: stroke-dashoffset 0.3s ease; }
 @keyframes girar { from { transform: rotate(-90deg); } to { transform: rotate(270deg); } }
-@keyframes latir { from { transform: scale(0.88); } to { transform: scale(1.04); } }
+@keyframes balanceo {
+  0% { transform: scale(0.88) rotate(-12deg) translateY(1px); }
+  50% { transform: scale(1.18) rotate(12deg) translateY(-3px); }
+  100% { transform: scale(0.88) rotate(-12deg) translateY(1px); }
+}
+@keyframes listo { 0% { transform: scale(0.8); } 60% { transform: scale(1.3); } 100% { transform: scale(1); } }
 .termometro { display: inline-block; margin-top: 6px; padding: 3px 10px; border-radius: 99px; font-size: 13px; font-weight: 600;
   background: rgba(255, 255, 255, 0.12); border: 1px solid rgba(255, 255, 255, 0.16); }
 button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
