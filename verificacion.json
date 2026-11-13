@@ -1,0 +1,99 @@
+{
+ "estacion": {
+  "id": "08417",
+  "nombre": "Jaén (AEMET)",
+  "lat": 37.7833,
+  "lon": -3.8,
+  "elev": 582
+ },
+ "empieza": "2026-11-13",
+ "criterio": {
+  "temperatura": "Acierto si el error es de 2 °C o menos",
+  "lluvia": "Día de lluvia: 1 mm o más. Petricor lo da por lluvioso con una probabilidad del 50 % o más"
+ },
+ "emisiones": [
+  "2026-11-13"
+ ],
+ "dias": {
+  "2026-11-14": {
+   "prev": {
+    "1": {
+     "emitida": "2026-11-13T17:40Z",
+     "tmax": 17.5,
+     "tmin": 14.1,
+     "prob": 98,
+     "mm": 0.8,
+     "code": 51,
+     "tmaxBruto": 17.1,
+     "tminBruto": 12.8,
+     "fuente": "dwd_icon_global_native"
+    }
+   },
+   "obs": null
+  },
+  "2026-11-15": {
+   "prev": {
+    "2": {
+     "emitida": "2026-11-13T17:40Z",
+     "tmax": 17.5,
+     "tmin": 12,
+     "prob": 6,
+     "mm": 0,
+     "code": 3,
+     "tmaxBruto": 16.9,
+     "tminBruto": 10.4,
+     "fuente": "mezcla"
+    }
+   },
+   "obs": null
+  },
+  "2026-11-16": {
+   "prev": {
+    "3": {
+     "emitida": "2026-11-13T17:40Z",
+     "tmax": 17.9,
+     "tmin": 10.8,
+     "prob": 4,
+     "mm": 0,
+     "code": 1,
+     "tmaxBruto": 18,
+     "tminBruto": 8.3,
+     "fuente": "consenso"
+    }
+   },
+   "obs": null
+  },
+  "2026-11-17": {
+   "prev": {
+    "4": {
+     "emitida": "2026-11-13T17:40Z",
+     "tmax": 18.8,
+     "tmin": 12.1,
+     "prob": 92,
+     "mm": 0,
+     "code": 80,
+     "tmaxBruto": 17.9,
+     "tminBruto": 9,
+     "fuente": "consenso"
+    }
+   },
+   "obs": null
+  },
+  "2026-11-18": {
+   "prev": {
+    "5": {
+     "emitida": "2026-11-13T17:40Z",
+     "tmax": 20.3,
+     "tmin": 17.5,
+     "prob": 98,
+     "mm": 1.6,
+     "code": 51,
+     "tmaxBruto": 19.6,
+     "tminBruto": 14.7,
+     "fuente": "consenso"
+    }
+   },
+   "obs": null
+  }
+ }
+}
