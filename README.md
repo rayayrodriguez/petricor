@@ -11,6 +11,7 @@ Web personal del tiempo para Jaén y otros lugares. Se instala en el iPhone como
 - **Notificaciones al iPhone:** para avisos naranja y rojo, aunque la app esté cerrada.
 - **Fondo animado:** el color y la luz siguen la altura real del sol, y de noche se ven las estrellas, la luna y los planetas que hay sobre el lugar a esa hora.
 - **Detalle diario:** viento, humedad, presión, UV, sol, luna, calidad del aire y polen.
+- **Historial de aciertos:** cada mañana a las 9 se guarda la previsión para Jaén de los cinco días siguientes y, cuando llegan los datos de la estación de AEMET, se compara. Vive en la rama `datos` (`verificacion.json` y `aciertos.json`), así que no depende del móvil.
 
 ## Cómo funciona
 
@@ -19,6 +20,7 @@ Web personal del tiempo para Jaén y otros lugares. Se instala en el iPhone como
 | Web | `index.html`, `app.js` y módulos. Se publica con GitHub Pages desde la rama `main`. |
 | Avisos y observación, cada 15 min | `.github/workflows/avisos.yml` → `scripts/avisos.py` |
 | Correcciones, cada mañana | `.github/workflows/correcciones.yml` → `scripts/correcciones.py` |
+| Previsión guardada para el historial | `scripts/prevision_diaria.mjs`, con el mismo cálculo que la app (`prevision.js`) |
 | Datos generados | rama `datos`, que la web lee directamente |
 
 ## Puesta en marcha

@@ -3,6 +3,8 @@ import { frase, TONOS } from './frases.js';
 import { Cielo } from './cielo.js';
 import { icono, tipoCodigo, textoCodigo, gota, flecha } from './iconos.js';
 import { alturaSol, solDia, faseLuna, posicionSol, posicionLuna, planetas, tiempoSidereo } from './astro.js';
+import { MODELOS, ESTACION, CORRECCIONES_INICIALES, media, max, min, sum, clamp, distanciaKm, fmt, partes, json,
+  modeloTemp, modeloLluvia, conCorreccion, descargar, procesar, rango, codigoDia } from './prevision.js';
 
 // ---------------------------------------------------------------- configuración
 
@@ -12,31 +14,13 @@ const REPO = (() => {
   return { owner: 'rayayrodriguez', repo: 'petricor' };
 })();
 const DATOS = `https://raw.githubusercontent.com/${REPO.owner}/${REPO.repo}/datos/`;
-const API = 'https://api.open-meteo.com/v1/forecast';
-const API_ENS = 'https://ensemble-api.open-meteo.com/v1/ensemble';
-const API_AIRE = 'https://air-quality-api.open-meteo.com/v1/air-quality';
 const API_GEO = 'https://geocoding-api.open-meteo.com/v1/search';
 const NOMINATIM = 'https://nominatim.openstreetmap.org';
 
-const MODELOS = ['dwd_icon_global_native', 'ecmwf_ifs', 'ncep_gfs_global', 'meteofrance_arpege_europe',
-  'ukmo_global_deterministic_10km', 'cmc_gem_gdps', 'dwd_icon_eu_native', 'ecmwf_ifs025'];
 const NOMBRES = {
   dwd_icon_global_native: 'ICON (Alemania)', ecmwf_ifs: 'ECMWF 9 km (Europa)', ncep_gfs_global: 'GFS (EE. UU.)',
   meteofrance_arpege_europe: 'ARPEGE (Francia)', ukmo_global_deterministic_10km: 'Met Office (R. Unido)',
   cmc_gem_gdps: 'GEM (Canadá)', dwd_icon_eu_native: 'ICON-EU (Alemania)', ecmwf_ifs025: 'ECMWF 25 km', consenso: 'Media de modelos'
-};
-const ESTACION = { id: '08417', nombre: 'Jaén (AEMET)', lat: 37.7833, lon: -3.80, elev: 582 };
-const CORRECCIONES_INICIALES = {
-  actualizado: null, origen: 'inicial', ventana_dias: 90,
-  temperatura: { modelo: 'dwd_icon_global_native', n: 90, correccion: { tmax: 0.4, tmin: 1.3 },
-    error_bruto: { tmax: 0.77, tmin: 1.43 }, error_corregido: { tmax: 0.68, tmin: 0.84 } },
-  consenso: { n: 88, correccion: { tmax: 0.8, tmin: 1.7 } },
-  lluvia: { modelo: 'ecmwf_ifs', dias_lluvia: 9, acertados: 8, falsas_alarmas: 10 },
-  ranking: [
-    { modelo: 'dwd_icon_global_native', error: 0.75, error_bruto: 1.11 }, { modelo: 'consenso', error: 0.81, error_bruto: 1.39 },
-    { modelo: 'ncep_gfs_global', error: 0.95, error_bruto: 1.24 }, { modelo: 'ecmwf_ifs', error: 1.09, error_bruto: 1.25 },
-    { modelo: 'meteofrance_arpege_europe', error: 1.14, error_bruto: 1.25 }, { modelo: 'ukmo_global_deterministic_10km', error: 1.26, error_bruto: 2.23 }
-  ]
 };
 const LUGAR_JAEN = { id: 'jaen', nombre: 'Jaén', region: 'Andalucía', lat: ESTACION.lat, lon: ESTACION.lon, elev: ESTACION.elev,
   provincia: 'jaen', zonas: ['ES090', 'ES091'], pais: 'es', estacion: ESTACION.id, avisos: true };
@@ -49,11 +33,6 @@ const $ = (s, r = document) => r.querySelector(s);
 const nf1 = new Intl.NumberFormat('es-ES', { maximumFractionDigits: 1 });
 const n1 = (v) => (v == null || Number.isNaN(v) ? '–' : nf1.format(Math.round(v * 10) / 10));
 const r0 = (v) => (v == null || Number.isNaN(v) ? '–' : Math.round(v).toString());
-const media = (a) => { const v = a.filter((x) => x != null && !Number.isNaN(x)); return v.length ? v.reduce((s, x) => s + x, 0) / v.length : null; };
-const max = (a) => { const v = a.filter((x) => x != null); return v.length ? Math.max(...v) : null; };
-const min = (a) => { const v = a.filter((x) => x != null); return v.length ? Math.min(...v) : null; };
-const sum = (a) => a.reduce((s, x) => s + (x || 0), 0);
-const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
 // Con el tono jaenero cambian palabras y textos; los números y unidades nunca
 const jae = () => estado.tono === 'jaenero';
 const J = (normal, jaenero) => (jae() ? jaenero : normal);
@@ -72,23 +51,6 @@ function termometro(t) {
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const normalizar = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
 
-function distanciaKm(a, b, c, d) {
-  const R = 6371, x = (c - a) * Math.PI / 180, y = (d - b) * Math.PI / 180;
-  const h = Math.sin(x / 2) ** 2 + Math.cos(a * Math.PI / 180) * Math.cos(c * Math.PI / 180) * Math.sin(y / 2) ** 2;
-  return 2 * R * Math.asin(Math.sqrt(h));
-}
-
-const formateadores = {};
-function fmt(tz, opts) {
-  const k = tz + JSON.stringify(opts);
-  if (!formateadores[k]) formateadores[k] = new Intl.DateTimeFormat('es-ES', { timeZone: tz, ...opts });
-  return formateadores[k];
-}
-function partes(ms, tz) {
-  const p = {};
-  for (const x of fmt(tz, { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23', weekday: 'short' }).formatToParts(ms)) p[x.type] = x.value;
-  return { dia: `${p.year}-${p.month}-${p.day}`, h: +p.hour, m: +p.minute, sem: p.weekday.replace('.', '') };
-}
 const horaTxt = (ms, tz) => fmt(tz, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(ms);
 function nombreDia(clave, hoy, tz) {
   const dif = Math.round((Date.parse(clave) - Date.parse(hoy)) / 86400000);
@@ -97,16 +59,6 @@ function nombreDia(clave, hoy, tz) {
   const ms = Date.parse(clave + 'T12:00:00Z');
   const f = fmt('UTC', { weekday: 'short', day: 'numeric' }).format(ms).replace('.', '');
   return f.charAt(0).toUpperCase() + f.slice(1);
-}
-
-async function json(url, { timeout = 20000 } = {}) {
-  const c = new AbortController();
-  const t = setTimeout(() => c.abort(), timeout);
-  try {
-    const r = await fetch(url, { signal: c.signal });
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    return await r.json();
-  } finally { clearTimeout(t); }
 }
 
 function guardarLS(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* almacenamiento lleno o bloqueado */ } }
@@ -124,6 +76,7 @@ function guardar() { guardarLS(CLAVE_ESTADO, estado); }
 let correcciones = leerLS('petricor.correcciones', CORRECCIONES_INICIALES);
 let avisosDatos = leerLS('petricor.avisos', { avisos: [] });
 let obsJaen = leerLS('petricor.obs', null);
+let aciertos = leerLS('petricor.aciertos', null);
 const memoria = {};
 let cielo;
 
@@ -134,201 +87,9 @@ async function cargarAuxiliares() {
   await Promise.allSettled([
     json(DATOS + 'correcciones.json' + v).then((d) => { if (d && d.temperatura) { correcciones = d; guardarLS('petricor.correcciones', d); } }),
     json(DATOS + 'avisos.json' + v).then((d) => { if (d && Array.isArray(d.avisos)) { avisosDatos = d; guardarLS('petricor.avisos', d); } }),
-    json(DATOS + 'obs_jaen.json' + v).then((d) => { if (d && d.temperatura != null) { obsJaen = d; guardarLS('petricor.obs', d); } })
+    json(DATOS + 'obs_jaen.json' + v).then((d) => { if (d && d.temperatura != null) { obsJaen = d; guardarLS('petricor.obs', d); } }),
+    json(DATOS + 'aciertos.json' + v).then((d) => { if (d && d.por_plazo) { aciertos = d; guardarLS('petricor.aciertos', d); } })
   ]);
-}
-
-function modeloTemp() { return MODELOS.includes(correcciones?.temperatura?.modelo) ? correcciones.temperatura.modelo : 'dwd_icon_global_native'; }
-function modeloLluvia() { return MODELOS.includes(correcciones?.lluvia?.modelo) ? correcciones.lluvia.modelo : 'ecmwf_ifs'; }
-
-function conCorreccion(lugar) {
-  return lugar.estacion === ESTACION.id || distanciaKm(lugar.lat, lugar.lon, ESTACION.lat, ESTACION.lon) <= 8;
-}
-
-function url(base, lugar, params) {
-  const q = new URLSearchParams({ latitude: lugar.lat, longitude: lugar.lon, timezone: 'auto', timeformat: 'unixtime', ...params });
-  if (lugar.elev != null && lugar.estacion && base !== API_AIRE) q.set('elevation', lugar.elev);
-  return `${base}?${q.toString()}`;
-}
-
-async function descargar(lugar) {
-  const mt = modeloTemp(), ml = modeloLluvia();
-  const principales = [...new Set([ml, mt])];
-  const vars = ['temperature_2m', 'apparent_temperature', 'relative_humidity_2m', 'dew_point_2m', 'precipitation', 'snowfall',
-    'weather_code', 'cloud_cover', 'wind_speed_10m', 'wind_direction_10m', 'wind_gusts_10m', 'pressure_msl', 'cape', 'visibility'];
-  const [a, b, c, d] = await Promise.allSettled([
-    json(url(API, lugar, { hourly: 'temperature_2m', models: MODELOS.join(','), forecast_days: 15 })),
-    json(url(API, lugar, { hourly: vars.join(','), models: principales.join(','), forecast_days: 15, wind_speed_unit: 'kmh' })),
-    json(url(API_ENS, lugar, { hourly: 'precipitation', models: 'ecmwf_ifs025', forecast_days: 15 })),
-    json(url(API_AIRE, lugar, { hourly: 'european_aqi,uv_index,olive_pollen,grass_pollen,birch_pollen,alder_pollen,mugwort_pollen,ragweed_pollen', forecast_days: 5 }))
-  ]);
-  if (b.status !== 'fulfilled') throw new Error('No se pudo descargar la previsión');
-  return { A: a.status === 'fulfilled' ? a.value : null, B: b.value, C: c.status === 'fulfilled' ? c.value : null, D: d.status === 'fulfilled' ? d.value : null, mt, ml, principales };
-}
-
-function serie(resp, variable, modelo, nModelos) {
-  if (!resp || !resp.hourly) return null;
-  const h = resp.hourly;
-  return h[`${variable}_${modelo}`] || (nModelos === 1 ? h[variable] : null) || null;
-}
-
-// ---------------------------------------------------------------- cálculo de la previsión
-
-function procesar(bruto, lugar) {
-  const { A, B, C, D, mt, ml, principales } = bruto;
-  const tz = B.timezone || 'Europe/Madrid';
-  const tiempos = B.hourly.time;
-  const n = tiempos.length;
-  const iA = A ? new Map(A.hourly.time.map((t, i) => [t, i])) : new Map();
-  const iC = C ? new Map(C.hourly.time.map((t, i) => [t, i])) : new Map();
-  const iD = D ? new Map(D.hourly.time.map((t, i) => [t, i])) : new Map();
-  const np = principales.length;
-  const b = (v, m) => serie(B, v, m, np);
-  const elige = (v) => { const s1 = b(v, ml), s2 = b(v, mt); return (i) => (s1 && s1[i] != null ? s1[i] : s2 && s2[i] != null ? s2[i] : null); };
-
-  // Temperaturas de todos los modelos (para la media)
-  const tempMod = {};
-  for (const m of MODELOS) tempMod[m] = serie(A, 'temperature_2m', m, MODELOS.length);
-  const tPrincipal = b('temperature_2m', mt);
-  const sensPrincipal = b('apparent_temperature', mt);
-  const crudo = [], consenso = [];
-  for (let i = 0; i < n; i++) {
-    const t = tiempos[i];
-    const j = iA.get(t);
-    const vals = j == null ? [] : MODELOS.map((m) => (tempMod[m] ? tempMod[m][j] : null)).filter((v) => v != null);
-    consenso.push(vals.length >= 3 ? media(vals) : null);
-    const p = tPrincipal ? tPrincipal[i] : null;
-    crudo.push(p != null ? p : j != null && tempMod[mt] ? tempMod[mt][j] : null);
-  }
-
-  // Precipitación del conjunto ECMWF (51 miembros) para la probabilidad
-  let miembros = [];
-  if (C && C.hourly) miembros = Object.keys(C.hourly).filter((k) => k.startsWith('precipitation')).map((k) => C.hourly[k]);
-
-  const g = {
-    prec: elige('precipitation'), nieve: elige('snowfall'), code: elige('weather_code'), nubes: elige('cloud_cover'),
-    viento: elige('wind_speed_10m'), dir: elige('wind_direction_10m'), racha: elige('wind_gusts_10m'), hr: elige('relative_humidity_2m'),
-    rocio: elige('dew_point_2m'), pres: elige('pressure_msl'), cape: elige('cape'), vis: elige('visibility')
-  };
-
-  const hoy = partes(Date.now(), tz).dia;
-  const horas = [];
-  for (let i = 0; i < n; i++) {
-    const ms = tiempos[i] * 1000, p = partes(ms, tz);
-    horas.push({ ms, dia: p.dia, h: p.h, crudo: crudo[i], cons: consenso[i], sens: sensPrincipal ? sensPrincipal[i] : null,
-      prec: g.prec(i), nieve: g.nieve(i), code: g.code(i), nubes: g.nubes(i), viento: g.viento(i), dir: g.dir(i), racha: g.racha(i),
-      hr: g.hr(i), rocio: g.rocio(i), pres: g.pres(i), cape: g.cape(i), vis: g.vis(i),
-      esDia: alturaSol(ms, lugar.lat, lugar.lon) > -0.83 });
-  }
-
-  // Probabilidad horaria: miembros con al menos 0,2 mm en la ventana de 3 horas
-  if (miembros.length) {
-    for (const hr of horas) {
-      const j = iC.get(hr.ms / 1000);
-      if (j == null) continue;
-      let si = 0, tot = 0;
-      for (const s of miembros) {
-        const v = (s[j - 1] || 0) + (s[j] || 0) + (s[j + 1] || 0);
-        if (s[j] == null && s[j - 1] == null && s[j + 1] == null) continue;
-        tot++; if (v >= 0.2) si++;
-      }
-      hr.prob = tot ? Math.round((si / tot) * 100) : null;
-    }
-  }
-  // Aire y UV
-  if (D && D.hourly) {
-    for (const hr of horas) {
-      const j = iD.get(hr.ms / 1000);
-      if (j == null) continue;
-      hr.uv = D.hourly.uv_index?.[j] ?? null;
-      hr.aqi = D.hourly.european_aqi?.[j] ?? null;
-      hr.polen = { olivo: D.hourly.olive_pollen?.[j], gramineas: D.hourly.grass_pollen?.[j], abedul: D.hourly.birch_pollen?.[j],
-        aliso: D.hourly.alder_pollen?.[j], artemisa: D.hourly.mugwort_pollen?.[j], ambrosia: D.hourly.ragweed_pollen?.[j] };
-    }
-  }
-
-  // Correcciones locales y elección por plazo
-  const usarCorr = conCorreccion(lugar);
-  const cP = usarCorr ? (correcciones.temperatura?.correccion || { tmax: 0, tmin: 0 }) : { tmax: 0, tmin: 0 };
-  const cC = usarCorr ? (correcciones.consenso?.correccion || { tmax: 0, tmin: 0 }) : { tmax: 0, tmin: 0 };
-  const porDia = new Map();
-  for (const hr of horas) { if (!porDia.has(hr.dia)) porDia.set(hr.dia, []); porDia.get(hr.dia).push(hr); }
-  const corrHora = (lista, campo, c) => {
-    const vals = lista.map((x) => x[campo]).filter((v) => v != null);
-    const mx = Math.max(...vals), mn = Math.min(...vals);
-    return (v) => (v == null ? null : v + c.tmin + (mx > mn ? clamp((v - mn) / (mx - mn), 0, 1) : 0.5) * (c.tmax - c.tmin));
-  };
-  for (const [dia, lista] of porDia) {
-    const dd = Math.round((Date.parse(dia) - Date.parse(hoy)) / 86400000);
-    const fP = corrHora(lista, 'crudo', cP), fC = corrHora(lista, 'cons', cC);
-    for (const hr of lista) {
-      const p = fP(hr.crudo), c = fC(hr.cons);
-      let t;
-      if (dd <= 1) { t = p ?? c; hr.fuente = p != null ? mt : 'consenso'; }
-      else if (dd === 2) { t = p != null && c != null ? (p + c) / 2 : p ?? c; hr.fuente = 'mezcla'; }
-      else { t = c ?? p; hr.fuente = c != null ? 'consenso' : mt; }
-      hr.temp = t;
-      if (hr.sens != null && hr.crudo != null && t != null) hr.sens = hr.sens + (t - hr.crudo);
-      else hr.sens = t;
-    }
-  }
-
-  // Días
-  const dias = [];
-  for (const [dia, lista] of porDia) {
-    if (lista.length < 18) continue;
-    const temps = lista.map((x) => x.temp);
-    const diurnas = lista.filter((x) => x.h >= 7 && x.h <= 21);
-    let prob = null;
-    if (miembros.length) {
-      const idx = lista.map((x) => iC.get(x.ms / 1000)).filter((j) => j != null);
-      if (idx.length >= 18) {
-        let si = 0, tot = 0;
-        for (const s of miembros) {
-          const vals = idx.map((j) => s[j]);
-          if (vals.every((v) => v == null)) continue;
-          tot++; if (sum(vals) >= 1) si++;
-        }
-        prob = tot ? Math.round((si / tot) * 100) : null;
-      }
-    }
-    const capeMax = max(lista.map((x) => x.cape));
-    const horasTormenta = lista.filter((x) => x.code >= 95).length;
-    let tormenta = 'bajo';
-    const pr = prob ?? 0;
-    if ((horasTormenta >= 2 && pr >= 40) || (capeMax >= 1500 && pr >= 40)) tormenta = 'alto';
-    else if (horasTormenta >= 1 || (capeMax >= 700 && pr >= 25)) tormenta = 'moderado';
-    const sd = solDia(Date.parse(dia + 'T12:00:00Z'), lugar.lat, lugar.lon);
-    let code = codigoDia(diurnas.length ? diurnas : lista);
-    if (prob != null && prob >= 60 && rango(code) < 5) code = 80;
-    dias.push({
-      dia, tmax: max(temps), tmin: min(temps), prec: sum(lista.map((x) => x.prec)), nieve: sum(lista.map((x) => x.nieve)),
-      prob, code, racha: max(lista.map((x) => x.racha)), viento: max(lista.map((x) => x.viento)),
-      uv: max(lista.map((x) => x.uv)), tormenta, capeMax, salida: sd.salida, puesta: sd.puesta,
-      fuente: lista[12]?.fuente || lista[0].fuente, horas: lista
-    });
-  }
-  return { tz, horas, dias, hoy, usarCorr, mt, ml, actualizado: Date.now() };
-}
-
-function rango(c) {
-  const t = tipoCodigo(c);
-  return { despejado: 0, pocas_nubes: 1, nubes: 2, cubierto: 3, niebla: 4, llovizna: 5, nieve: 7, lluvia: 6, lluvia_fuerte: 8, tormenta: 9 }[t] ?? 2;
-}
-function codigoDia(lista) {
-  const cuenta = new Map();
-  for (const x of lista) if (x.code != null) cuenta.set(x.code, (cuenta.get(x.code) || 0) + 1);
-  let mejor = null, rMejor = -1;
-  for (const [c, k] of cuenta) {
-    const r = rango(c);
-    const valido = r >= 9 ? k >= 1 : r >= 5 ? k >= 2 : true;
-    if (valido && r > rMejor) { rMejor = r; mejor = c; }
-  }
-  if (rMejor <= 3) {
-    const nubes = media(lista.map((x) => x.nubes));
-    if (nubes != null) return nubes < 15 ? 0 : nubes < 45 ? 1 : nubes < 80 ? 2 : 3;
-  }
-  return mejor ?? 2;
 }
 
 // ---------------------------------------------------------------- avisos oficiales
@@ -430,6 +191,7 @@ function pintar(mod, lugar) {
   pintarDias(mod, tz);
   pintarDetalles(mod, k, hoyD, lugar, tz);
   pintarPrecision(mod, lugar);
+  pintarAciertos();
   $('#nota-horas').textContent = mod.usarCorr ? 'Con corrección local' : '';
   $('#actualizado').textContent = `Actualizado a las ${horaTxt(mod.actualizado, tz)}.`;
 
@@ -759,6 +521,84 @@ function pintarPrecision(mod, lugar) {
   cont.innerHTML = html;
 }
 
+// ---------------------------------------------------------------- historial de aciertos
+
+const fechaCorta = (dia) => new Date(dia + 'T12:00:00Z').toLocaleDateString('es-ES', { day: 'numeric', month: 'long', timeZone: 'UTC' });
+const pct = (v) => (v == null ? '–' : `${v} %`);
+
+function pintarAciertos() {
+  const cont = $('#aciertos-cuerpo');
+  const a = aciertos;
+  const guardado = '<p class="texto-suave">El historial se guarda en tu repositorio de GitHub, no en el móvil: aunque borres la app, no se pierde.</p>';
+  if (!a || !a.dias_comprobados) {
+    const desde = a?.empieza ? ` desde el ${fechaCorta(a.empieza)}` : '';
+    cont.innerHTML = `<p>Petricor guarda cada mañana${desde} su previsión para Jaén y, al día siguiente, la compara con lo que midió la estación de AEMET. Los primeros resultados saldrán en un par de días; los porcentajes empiezan a ser fiables con un mes de datos.</p>${guardado}`;
+    return;
+  }
+  const p1 = a.por_plazo['1'] || {}, p3 = a.por_plazo['3'] || {};
+  const fila = (nombre, f) => `<tr><td>${nombre}</td><td>${f(p1)}</td><td>${f(p3)}</td></tr>`;
+  let html = `<p>Comprobados <b>${a.dias_comprobados} días</b>, del ${fechaCorta(a.primero)} al ${fechaCorta(a.ultimo)}, con la estación de AEMET en Jaén.</p>`;
+  if (a.dias_comprobados < 30) html += '<p class="texto-suave">Con menos de un mes de datos, los porcentajes todavía bailan bastante.</p>';
+  html += `<table class="ranking aciertos"><thead><tr><th>Acierto</th><th>Para mañana</th><th>A 3 días</th></tr></thead><tbody>
+    ${fila(`Máxima, ±${n1(a.margen)} °C`, (p) => pct(p.tmax?.aciertos))}
+    ${fila(`Mínima, ±${n1(a.margen)} °C`, (p) => pct(p.tmin?.aciertos))}
+    ${fila('Llueve o no llueve', (p) => pct(p.lluvia?.aciertos))}
+    ${fila('Las tres cosas a la vez', (p) => pct(p.dia_completo))}
+    ${fila('Error medio de la máxima', (p) => (p.tmax ? `${n1(p.tmax.error)} °C` : '–'))}
+    ${fila('Error medio de la mínima', (p) => (p.tmin ? `${n1(p.tmin.error)} °C` : '–'))}
+  </tbody></table>`;
+  const ll = p1.lluvia;
+  if (ll && ll.n) html += `<p>Lluvia, para mañana: de ${ll.dias_lluvia} ${ll.dias_lluvia === 1 ? 'día' : 'días'} de lluvia, avisó de ${ll.lluvia_avisada}; dio lluvia que no llegó ${ll.falsas_alarmas} ${ll.falsas_alarmas === 1 ? 'vez' : 'veces'}.</p>`;
+  if (p1.tmax?.error_sin_corregir != null && p1.tmin?.error_sin_corregir != null) {
+    const sin = (p1.tmax.error_sin_corregir + p1.tmin.error_sin_corregir) / 2, con = (p1.tmax.error + p1.tmin.error) / 2;
+    html += `<p>La corrección local ${con <= sin ? 'ayuda' : 'no está ayudando'}: error medio de ${n1(sin)} °C sin corregir y ${n1(con)} °C con la corrección.</p>`;
+  }
+  if ((a.ultimos || []).length) {
+    const marca = (ok) => (ok == null ? '<span class="neutro">·</span>' : ok ? '<span class="bien">✓</span>' : '<span class="mal">✗</span>');
+    html += `<table class="ranking aciertos-dias"><caption>Últimos días: lo previsto la víspera / lo medido</caption>
+      <thead><tr><th>Día</th><th>Máxima</th><th>Mínima</th><th>Lluvia</th></tr></thead><tbody>${a.ultimos.slice(0, 7).map((u) => {
+        const ll = u.obs.mm == null ? '–' : `${n1(u.obs.mm)} mm`;
+        return `<tr><td>${esc(nombreDia(u.dia, '', 'UTC'))}</td><td>${r0(u.prev.tmax)}° / ${r0(u.obs.tmax)}° ${marca(u.ok.tmax)}</td><td>${r0(u.prev.tmin)}° / ${r0(u.obs.tmin)}° ${marca(u.ok.tmin)}</td><td>${u.prev.prob ?? '–'} % · ${ll} ${marca(u.ok.lluvia)}</td></tr>`;
+      }).join('')}</tbody></table>`;
+  }
+  if ((a.por_mes || []).length > 1) {
+    html += `<table class="ranking"><caption>Por meses, previsión para mañana</caption><thead><tr><th>Mes</th><th>Máx.</th><th>Mín.</th><th>Lluvia</th></tr></thead><tbody>${a.por_mes.map((m) => {
+      const p = m['1'] || {};
+      const nombre = new Date(m.mes + '-15T12:00:00Z').toLocaleDateString('es-ES', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+      return `<tr><td>${esc(nombre)}</td><td>${pct(p.tmax?.aciertos)}</td><td>${pct(p.tmin?.aciertos)}</td><td>${pct(p.lluvia?.aciertos)}</td></tr>`;
+    }).join('')}</tbody></table>`;
+  }
+  html += `<p class="texto-suave">${esc(a.criterio?.lluvia || '')}.</p>${guardado}`;
+  html += '<button class="boton-texto" id="btn-historial" type="button">Descargar el historial completo</button>';
+  cont.innerHTML = html;
+  $('#btn-historial').addEventListener('click', descargarHistorial);
+}
+
+// Todo el historial en una hoja de cálculo, para abrirla en Excel o Numbers
+async function descargarHistorial() {
+  const b = $('#btn-historial');
+  b.textContent = 'Preparando…';
+  try {
+    const v = await json(DATOS + 'verificacion.json?t=' + Date.now());
+    const filas = [['dia', 'plazo_dias', 'emitida', 'prev_max', 'prev_min', 'prev_prob_lluvia', 'prev_mm', 'prev_max_sin_corregir', 'prev_min_sin_corregir', 'obs_max', 'obs_min', 'obs_mm']];
+    for (const [dia, e] of Object.entries(v.dias).sort()) {
+      for (const [pl, p] of Object.entries(e.prev)) {
+        const o = e.obs && !e.obs.sin_dato ? e.obs : {};
+        filas.push([dia, pl, p.emitida, p.tmax, p.tmin, p.prob, p.mm, p.tmaxBruto, p.tminBruto, o.tmax, o.tmin, o.mm]);
+      }
+    }
+    const csv = filas.map((f) => f.map((x) => (x == null ? '' : String(x).replace('.', ','))).join(';')).join('\r\n');
+    const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = `petricor-historial-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    b.textContent = 'Descargar el historial completo';
+  } catch (e) {
+    b.textContent = 'No se pudo descargar; prueba otra vez';
+  }
+}
+
 // ---------------------------------------------------------------- carga
 
 let cargando = false;
@@ -777,7 +617,7 @@ async function cargar(forzar = false) {
     const aux = cargarAuxiliares();
     if (forzar || viejo) {
       await aux;
-      const mod = procesar(await descargar(lugar), lugar);
+      const mod = procesar(await descargar(lugar, correcciones), lugar, correcciones);
       memoria[lugar.id] = mod;
       guardarLS(clave, mod);
       if (lugarActual().id === lugar.id) pintar(mod, lugar);

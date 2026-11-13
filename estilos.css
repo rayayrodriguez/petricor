@@ -215,6 +215,14 @@ h2, h3 { margin: 0; font-weight: 600; }
 .ranking th:last-child, .ranking td:last-child { text-align: right; }
 .ranking td { padding: 6px 0; border-top: 1px solid var(--linea); }
 .ranking tr.elegido td { color: var(--acento); font-weight: 600; }
+#aciertos-cuerpo { padding-inline: 16px; display: grid; gap: 10px; font-size: 14px; }
+.aciertos td:not(:first-child), .aciertos th:not(:first-child) { text-align: right; }
+.aciertos-dias td { font-size: 12px; white-space: nowrap; }
+.aciertos-dias td:last-child, .aciertos-dias th:last-child { text-align: right; }
+.bien { color: #8ee09a; font-weight: 700; }
+.mal { color: #ff9b8e; font-weight: 700; }
+.neutro { color: var(--tinta-3); }
+#btn-historial { justify-self: start; }
 .texto-suave { color: var(--tinta-3); font-size: 13px; margin: 0; }
 
 .pie { padding-inline: 4px; font-size: 11.5px; color: var(--tinta-3); text-align: center; }

@@ -253,6 +253,109 @@ def notificar(avisos, ahora):
         comun.escribir_json("push_estado.json", estado)
 
 
+# ---------------------------------------------------------------- historial de aciertos
+
+MARGEN = 2.0  # °C: dentro de este error, la temperatura cuenta como acertada
+
+
+def verificar(ahora):
+    """Pone al lado de cada previsión guardada lo que midió la estación de AEMET en Jaén."""
+    ver = comun.leer_json("verificacion.json", None)
+    if not ver:
+        return
+    hoy = ahora.astimezone(MADRID).date()
+    listos = []
+    for clave, e in ver["dias"].items():
+        if e.get("obs") is not None:
+            continue
+        dia = dt.date.fromisoformat(clave)
+        # La lluvia del día llega en el parte de las 06 UTC del día siguiente
+        if dia < hoy and ahora >= dt.datetime(dia.year, dia.month, dia.day, tzinfo=dt.timezone.utc) + dt.timedelta(hours=32):
+            listos.append(dia)
+    if listos:
+        ultimo = ver.get("ultimo_intento")
+        if not ultimo or ahora - dt.datetime.fromisoformat(ultimo) >= dt.timedelta(hours=1):
+            ver["ultimo_intento"] = ahora.isoformat(timespec="minutes")
+            desde = dt.datetime.combine(min(listos) - dt.timedelta(days=1), dt.time(0), dt.timezone.utc)
+            try:
+                recs = comun.descargar_synop(desde, ahora)
+            except Exception as e:
+                print("Observaciones para el historial no descargadas:", e)
+                recs = None
+            if recs is not None:
+                for dia in listos:
+                    o = comun.diarios(recs, dia)
+                    e = ver["dias"][dia.isoformat()]
+                    if o["tx"] is not None and o["tn"] is not None:
+                        e["obs"] = {"tmax": o["tx"], "tmin": o["tn"], "mm": o["p"]}
+                    elif (hoy - dia).days > 6:
+                        e["obs"] = {"sin_dato": True}
+    # Solo se escribe lo que cambia, para no llenar el repositorio de cambios vacíos
+    if ver != comun.leer_json("verificacion.json", None):
+        comun.escribir_json("verificacion.json", ver)
+    nuevo = resumen(ver, ahora)
+    viejo = comun.leer_json("aciertos.json", {})
+    if {k: v for k, v in nuevo.items() if k != "actualizado"} != {k: v for k, v in viejo.items() if k != "actualizado"}:
+        comun.escribir_json("aciertos.json", nuevo)
+
+
+def _lluvia_prevista(p):
+    return (p["prob"] >= 50) if p.get("prob") is not None else (p.get("mm") or 0) >= 1
+
+
+def _estadisticas(filas):
+    n = len(filas)
+    if not n:
+        return {"n": 0}
+    def temp(campo, bruto):
+        err = [p[campo] - o[campo] for p, o in filas if p.get(campo) is not None and o.get(campo) is not None]
+        errb = [p[bruto] - o[campo] for p, o in filas if p.get(bruto) is not None and o.get(campo) is not None]
+        if not err:
+            return None
+        return {"aciertos": round(100 * sum(abs(x) <= MARGEN for x in err) / len(err)),
+                "error": round(sum(abs(x) for x in err) / len(err), 1),
+                "sesgo": round(sum(err) / len(err), 1),
+                "error_sin_corregir": round(sum(abs(x) for x in errb) / len(errb), 1) if errb else None}
+    con_lluvia = [(p, o) for p, o in filas if o.get("mm") is not None]
+    ll = None
+    if con_lluvia:
+        prev = [_lluvia_prevista(p) for p, o in con_lluvia]
+        obs = [o["mm"] >= 1 for p, o in con_lluvia]
+        ll = {"aciertos": round(100 * sum(a == b for a, b in zip(prev, obs)) / len(obs)), "n": len(obs),
+              "dias_lluvia": sum(obs), "lluvia_avisada": sum(a and b for a, b in zip(prev, obs)),
+              "falsas_alarmas": sum(a and not b for a, b in zip(prev, obs))}
+    completos = [(p, o) for p, o in filas if o.get("mm") is not None and p.get("tmax") is not None and p.get("tmin") is not None]
+    todo = round(100 * sum(abs(p["tmax"] - o["tmax"]) <= MARGEN and abs(p["tmin"] - o["tmin"]) <= MARGEN and
+                           _lluvia_prevista(p) == (o["mm"] >= 1) for p, o in completos) / len(completos)) if completos else None
+    return {"n": n, "tmax": temp("tmax", "tmaxBruto"), "tmin": temp("tmin", "tminBruto"), "lluvia": ll, "dia_completo": todo}
+
+
+def resumen(ver, ahora):
+    filas = []
+    for clave, e in sorted(ver["dias"].items()):
+        o = e.get("obs")
+        if not o or o.get("sin_dato"):
+            continue
+        for plazo, p in e["prev"].items():
+            filas.append((clave, int(plazo), p, o))
+    por_plazo = {str(k): _estadisticas([(p, o) for d, pl, p, o in filas if pl == k]) for k in (1, 2, 3, 4, 5)}
+    meses = sorted({d[:7] for d, *_ in filas})
+    por_mes = [{"mes": m, **{str(k): _estadisticas([(p, o) for d, pl, p, o in filas if pl == k and d.startswith(m)]) for k in (1, 3)}}
+               for m in meses]
+    ultimos = []
+    for d, pl, p, o in filas:
+        if pl != 1:
+            continue
+        ultimos.append({"dia": d, "prev": {k: p.get(k) for k in ("tmax", "tmin", "prob", "mm")}, "obs": o,
+                        "ok": {"tmax": abs(p["tmax"] - o["tmax"]) <= MARGEN, "tmin": abs(p["tmin"] - o["tmin"]) <= MARGEN,
+                               "lluvia": None if o.get("mm") is None else _lluvia_prevista(p) == (o["mm"] >= 1)}})
+    comprobados = sorted({d for d, *_ in filas})
+    return {"actualizado": ahora.isoformat(timespec="minutes"), "estacion": ver.get("estacion"), "empieza": ver.get("empieza"),
+            "criterio": ver.get("criterio"), "margen": MARGEN, "dias_comprobados": len(comprobados),
+            "primero": comprobados[0] if comprobados else None, "ultimo": comprobados[-1] if comprobados else None,
+            "por_plazo": por_plazo, "por_mes": por_mes, "ultimos": ultimos[-14:][::-1]}
+
+
 def main():
     ahora = dt.datetime.now(dt.timezone.utc)
     avisos = []
@@ -266,6 +369,10 @@ def main():
     except Exception as e:
         print("Observación no actualizada:", e)
     notificar(avisos, ahora)
+    try:
+        verificar(ahora)
+    except Exception as e:
+        print("Historial de aciertos no actualizado:", e)
 
 
 if __name__ == "__main__":

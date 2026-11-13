@@ -1,0 +1,6 @@
+{
+  "name": "petricor",
+  "private": true,
+  "type": "module",
+  "description": "Los módulos .js son ES modules; esto lo necesita el guardado diario de la previsión que corre en GitHub con Node."
+}
