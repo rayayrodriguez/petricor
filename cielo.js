@@ -321,10 +321,11 @@ function spriteMicro() {
 // ── Gotas en el cristal ──
 // Las gotas que golpean el cristal se quedan pegadas. Si una cae sobre otra, se juntan y crecen.
 // Cuando una pesa lo bastante vence el agarre y resbala a tirones: se traga las que encuentra,
-// deja detrás una estela de agua que se va secando y rompiendo en gotitas, y limpia a su paso
-// la neblina de microgotas. Las que bajan después tienden a seguir el camino ya mojado.
+// limpia a su paso la neblina de microgotas y arrastra detrás una película de agua corta que en
+// menos de medio segundo se rompe en gotitas: lo que queda es un surco limpio salpicado de gotas
+// diminutas, no una raya. Las que bajan después tienden a seguir el camino ya mojado.
 const MOJ = 5; // tamaño de celda del mapa de humedad, px
-const CELDA = 20, MAX_GOTAS = 650, R_RESBALA = 5.2;
+const CELDA = 20, MAX_GOTAS = 650, R_RESBALA = 5.8;
 
 class Cristal {
   constructor() {
@@ -340,12 +341,6 @@ class Cristal {
     this.micro.width = Math.round(w * dpr); this.micro.height = Math.round(h * dpr);
     this.m = this.micro.getContext('2d');
     this.m.setTransform(dpr, 0, 0, dpr, 0, 0);
-    // Estelas: se pintan con colores opacos y la capa entera se pone translúcida al final,
-    // así los trozos de cada fotograma no se acumulan en manchas
-    this.estelas = document.createElement('canvas');
-    this.estelas.width = this.micro.width; this.estelas.height = this.micro.height;
-    this.e = this.estelas.getContext('2d');
-    this.e.setTransform(dpr, 0, 0, dpr, 0, 0);
     this.cols = Math.ceil(w / MOJ) + 1; this.filas = Math.ceil(h / MOJ) + 1;
     this.mojado = new Float32Array(this.cols * this.filas);
     this.vaciar();
@@ -353,7 +348,7 @@ class Cristal {
 
   vaciar() {
     this.gotas = []; this.lleno = false; this.reloj = 0;
-    if (this.m) { this.m.clearRect(0, 0, this.w, this.h); this.e.clearRect(0, 0, this.w, this.h); this.mojado.fill(0); }
+    if (this.m) { this.m.clearRect(0, 0, this.w, this.h); this.mojado.fill(0); }
   }
 
   // Lo mojado que sigue el cristal en una celda: 1 recién pasada una gota, 0 seco
@@ -374,8 +369,8 @@ class Cristal {
   // al ir recogiendo la neblina que la rodea (en superficie, px²)
   ritmo(fina, f) {
     return fina
-      ? { micro: 230, gotas: 18, rmin: 0.8, rmax: 2.8, inicial: 380, crece: 0.3 }
-      : { micro: 160 + f * 280, gotas: 25 + f * 70, rmin: 1, rmax: 3.5 + f * 2.5, inicial: 420 + f * 160, crece: 0.45 + f * 1.3 };
+      ? { micro: 230, gotas: 18, rmin: 0.8, rmax: 2.8, inicial: 380, crece: 0.2 }
+      : { micro: 160 + f * 280, gotas: 25 + f * 70, rmin: 1, rmax: 3.5 + f * 2.5, inicial: 420 + f * 160, crece: 0.12 + f * 0.4 };
   }
 
   radio(R) { return R.rmin + (R.rmax - R.rmin) * Math.pow(Math.random(), 2.4); }
@@ -422,7 +417,7 @@ class Cristal {
   }
 
   nueva(x, y, r, agarre = azar(0.8, 1.45)) {
-    return { x, y, r, vy: 0, mueve: false, agarre, pausa: 0, rastro: 0, deriva: azar(-0.5, 0.5), viva: true, temblor: 0, eje: 0, sx: azar(0.93, 1.07), crece: azar(0.2, 1.8), moja: azar(0.55, 1) };
+    return { x, y, r, vy: 0, mueve: false, agarre, pausa: 0, rastro: 0, deriva: azar(-0.5, 0.5), viva: true, temblor: 0, eje: 0, sx: azar(0.93, 1.07), crece: azar(0.2, 1.8), hist: [], tramo: 0, sig: azar(2, 5.5) };
   }
 
   caer(x, y, r) {
@@ -478,10 +473,6 @@ class Cristal {
       m.globalAlpha = 1; m.globalCompositeOperation = 'destination-out';
       m.fillStyle = 'rgba(0,0,0,0.07)'; m.fillRect(0, 0, this.w, this.h);
       m.globalCompositeOperation = 'source-over';
-      // las estelas se secan antes que la neblina
-      this.e.globalCompositeOperation = 'destination-out';
-      this.e.fillStyle = 'rgba(0,0,0,0.2)'; this.e.fillRect(0, 0, this.w, this.h);
-      this.e.globalCompositeOperation = 'source-over';
     }
     // Las gotas quietas engordan con la neblina y, al crecer, se tocan y se juntan
     this.juntar += dt;
@@ -490,6 +481,7 @@ class Cristal {
     for (const d of this.gotas) {
       if (!d.viva) continue;
       d.temblor *= Math.exp(-dt * 7);
+      if (d.hist.length) this.romperPelicula(d);
       if (!d.mueve) {
         d.r = Math.min(10, Math.sqrt(d.r * d.r + R.crece * d.crece * dt));
         if (revisar) this.fusionar(d);
@@ -520,51 +512,86 @@ class Cristal {
     for (const k of [-3, -2, -1, 1, 2, 3]) { const v = this.humedad(c + k, fila); if (v > mejor + 0.1) { mejor = v; lado = k; } }
     d.deriva += (lado ? Math.sign(lado) * 6 : azar(-1, 1) * 1.6) * dt;
     d.deriva = Math.max(-1, Math.min(1, d.deriva * (pista > 0.3 && !lado ? Math.exp(-dt * 4) : 1)));
-    const x0 = d.x, y0 = d.y;
     const dy = d.vy * dt;
     d.y += dy; d.x = Math.max(0, Math.min(this.w, d.x + d.deriva * dy * 0.16));
-    // limpia la neblina por donde pasa
-    m.globalAlpha = 1; m.globalCompositeOperation = 'destination-out'; m.fillStyle = '#000';
-    m.beginPath(); m.ellipse(d.x, d.y - d.r * 0.3, d.r * 0.95, d.r * 1.3, 0, 0, Math.PI * 2); m.fill();
-    m.globalCompositeOperation = 'source-over';
-    // estela: una película de agua más estrecha que la gota, con el borde oscuro y un hilo de luz
     if (dy > 0.05) {
-      const e = this.e, a = Math.max(0.8, d.r * 0.5 * d.moja);
-      e.globalAlpha = 1;
-      e.beginPath(); e.moveTo(x0, y0 - d.r * 0.4); e.lineTo(d.x, d.y - d.r * 0.4);
-      // el borde va por debajo de lo ya pintado para no cortar la estela a rayas en cada fotograma
-      e.globalCompositeOperation = 'destination-over'; e.lineCap = 'round';
-      e.strokeStyle = 'rgb(18,24,36)'; e.lineWidth = a; e.stroke();
-      // con colores opacos y extremos redondos los trozos se solapan sin dejar costuras
-      e.globalCompositeOperation = 'source-over';
-      e.strokeStyle = 'rgb(214,224,238)'; e.lineWidth = a * 0.55; e.stroke();
-      e.beginPath(); e.moveTo(x0 - a * 0.22, y0 - d.r * 0.4); e.lineTo(d.x - a * 0.22, d.y - d.r * 0.4);
-      e.strokeStyle = 'rgb(255,255,255)'; e.lineWidth = Math.max(0.5, a * 0.14); e.stroke();
+      // limpia la neblina por donde pasa
+      m.globalAlpha = 1; m.globalCompositeOperation = 'destination-out'; m.fillStyle = '#000';
+      m.beginPath(); m.ellipse(d.x, d.y - d.r * 0.3, d.r * 0.95, d.r * 1.3, 0, 0, Math.PI * 2); m.fill();
+      m.globalCompositeOperation = 'source-over';
       this.mojar(d.x, d.y, d.r);
-      // la película se lleva agua de la gota
-      d.r = Math.sqrt(Math.max(0.01, d.r * d.r - dy * d.r * 0.012 * d.moja));
+      // apunta por dónde va pasando: ahí queda la película de agua
+      const u = d.hist[d.hist.length - 1];
+      if (!u || Math.abs(d.y - u.y) + Math.abs(d.x - u.x) >= 1) d.hist.push({ x: d.x, y: d.y, t: this.reloj });
     }
-    // se traga las que encuentra delante
+    // se traga las que encuentra delante; si al juntarse da un salto, la película de detrás se rompe ya
     const o = this.tocando(d.x, d.y, d.r, d, true);
-    if (o) this.unir(d, o);
-    // la estela se rompe a trozos en gotitas
-    d.rastro += dy;
-    if (d.rastro > 9 + d.r) {
-      d.rastro = 0;
-      if (Math.random() < 0.55 && this.gotas.length < MAX_GOTAS + 120) {
-        const rt = azar(0.45, Math.min(1.5, d.r * 0.25));
-        const t = this.nueva(d.x + azar(-0.25, 0.25) * d.r, d.y - d.r * azar(1.6, 2.6), rt);
-        t.crece = azar(0.1, 0.5);
-        this.gotas.push(t); this.meter(t);
-        d.r = Math.sqrt(Math.max(0.01, d.r * d.r - rt * rt));
-      }
+    if (o) {
+      const xa = d.x;
+      this.unir(d, o);
+      if (Math.abs(d.x - xa) > 1) for (const p of d.hist) p.t = -1e9;
     }
     // sin agua suficiente se queda parada
-    if (d.r < R_RESBALA * d.agarre * 0.72) { d.mueve = false; d.vy = 0; }
+    if (d.r < R_RESBALA * d.agarre * 0.8) { d.mueve = false; d.vy = 0; }
     if (d.y - d.r * 2 > this.h) d.viva = false;
   }
 
-  // Gota en marcha: cabeza redonda abajo y un cuello que se estrecha hacia arriba y se funde con la estela
+  // Lo que dura la película detrás de la gota antes de romperse: más en las gordas
+  vidaPelicula(d) { return 0.2 + d.r * 0.035; }
+
+  // La película que ha caducado se rompe en gotitas sueltas y la gota pierde ese agua.
+  // Casi todas son diminutas y se quedan en la capa de neblina; alguna más gorda queda como gota
+  romperPelicula(d) {
+    const vida = this.vidaPelicula(d), h = d.hist;
+    // tampoco se estira más de un poco por detrás del cuello
+    const largo = d.r * (2.6 + Math.min(2.4, d.vy / 55));
+    while (h.length && (this.reloj - h[0].t > vida || d.y - h[0].y > largo)) {
+      const p = h.shift(), q = h[0];
+      if (!q) break;
+      d.tramo += Math.hypot(q.x - p.x, q.y - p.y);
+      if (d.tramo < d.sig) continue;
+      d.tramo = 0; d.sig = azar(2, 5.5);
+      const gorda = Math.random() < 0.15;
+      const rb = gorda ? azar(1, Math.max(1.1, Math.min(1.7, d.r * 0.22))) : azar(0.45, 0.95);
+      const x = p.x + azar(-0.25, 0.25) * d.r * 0.4;
+      if (gorda && this.gotas.length < MAX_GOTAS + 150) {
+        const t = this.nueva(x, p.y, rb);
+        t.crece = azar(0.1, 0.5);
+        this.gotas.push(t); this.meter(t);
+      } else this.dibujar(this.m, x, p.y, rb, 1, 1, 0.95);
+      d.r = Math.sqrt(Math.max(0.01, d.r * d.r - rb * rb));
+    }
+    if (!d.mueve && h.length < 2) h.length = 0;
+  }
+
+  // Película de agua recién dejada: se estrecha y se apaga hacia atrás, donde ya se está rompiendo
+  pelicula(ctx, d, alfa) {
+    const h = d.hist, n = h.length;
+    if (n < 2) return;
+    const vida = this.vidaPelicula(d), I = [], D = [];
+    for (let i = n - 1; i >= 0; i--) {
+      const p = h[i], k = Math.min(1, (this.reloj - p.t) / vida);
+      const w = d.r * 0.26 * (1 - k * 0.8);
+      I.push(p.x - w, p.y); D.push(p.x + w, p.y);
+    }
+    const yA = h[n - 1].y, yB = h[0].y;
+    if (yA - yB < 1) return;
+    const camino = () => {
+      ctx.beginPath(); ctx.moveTo(I[0], I[1]);
+      for (let i = 2; i < I.length; i += 2) ctx.lineTo(I[i], I[i + 1]);
+      for (let i = D.length - 2; i >= 0; i -= 2) ctx.lineTo(D[i], D[i + 1]);
+      ctx.closePath();
+    };
+    const relleno = ctx.createLinearGradient(0, yA, 0, yB);
+    relleno.addColorStop(0, 'rgba(228,236,247,0.26)'); relleno.addColorStop(1, 'rgba(228,236,247,0)');
+    const borde = ctx.createLinearGradient(0, yA, 0, yB);
+    borde.addColorStop(0, 'rgba(14,20,32,0.3)'); borde.addColorStop(1, 'rgba(14,20,32,0)');
+    ctx.globalAlpha = alfa;
+    camino(); ctx.fillStyle = relleno; ctx.fill();
+    ctx.strokeStyle = borde; ctx.lineWidth = 0.7; ctx.stroke();
+  }
+
+  // Gota en marcha: cabeza redonda abajo y un cuello que se estrecha hacia arriba y se funde con la película
   cola(ctx, d, alfa) {
     const r = d.r, L = r * (1.1 + Math.min(2.4, d.vy / 55));
     const x = d.x, y = d.y, tx = x - d.deriva * L * 0.16, ty = y - L;
@@ -586,8 +613,7 @@ class Cristal {
     if (!this.micro) return;
     ctx.globalAlpha = alfa;
     ctx.drawImage(this.micro, 0, 0, this.w, this.h);
-    ctx.globalAlpha = alfa * 0.2;
-    ctx.drawImage(this.estelas, 0, 0, this.w, this.h);
+    for (const d of this.gotas) if (d.hist.length > 1) this.pelicula(ctx, d, alfa);
     for (const d of this.gotas) {
       if (d.mueve && d.vy > 4) {
         this.cola(ctx, d, alfa);
