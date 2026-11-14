@@ -2,6 +2,7 @@ import { ZONAS, PROVINCIAS, ALIAS_PROVINCIA } from './zonas.js';
 import { frase, TONOS } from './frases.js';
 import { Cielo } from './cielo.js';
 import { Sonido } from './sonido.js';
+import { calcularHorizonte, claveHorizonte, horizonteValido } from './horizonte.js';
 import { icono, tipoCodigo, textoCodigo, gota, flecha } from './iconos.js';
 import { alturaSol, solDia, faseLuna, posicionSol, posicionLuna, planetas, tiempoSidereo } from './astro.js';
 import { MODELOS, ESTACION, CORRECCIONES_INICIALES, media, max, min, sum, clamp, distanciaKm, fmt, partes, json,
@@ -222,7 +223,7 @@ function pintar(mod, lugar) {
   cielo.set({ tipo, fase, solPos, nubes: nubesCielo, viento: h0.viento ?? 8, racha: h0.racha ?? null, dirViento: h0.dir ?? 270, intensidad: h0.prec || 0,
     altSol: ps.altitud, azSol: ps.azimut, altLuna: pl.altitud, azLuna: pl.azimut, luna: fl.fase, iluminada: fl.iluminada,
     lat: lugar.lat, tsl: tiempoSidereo(ahoraMs, lugar.lon), planetas: planetas(ahoraMs, lugar.lat, lugar.lon),
-    poblacion: lugar.poblacion ?? (lugar.id === 'jaen' ? 112000 : null) });
+    poblacion: lugar.poblacion ?? (lugar.id === 'jaen' ? 112000 : null), ...paisajeDe(lugar, mes) });
   sonido.set({ tipo, fase, intensidad: h0.prec || 0, viento: h0.viento ?? 8, racha: h0.racha ?? null, temp: tAhora, mes });
   document.querySelector('meta[name="theme-color"]').setAttribute('content', fase === 'noche' ? '#0b1226' : '#2a4f86');
 }
@@ -884,6 +885,53 @@ async function activarPush() {
 }
 
 // ---------------------------------------------------------------- ajustes
+
+// ── Paisaje del fondo ──
+// El horizonte real se calcula una vez por lugar (en segundo plano) y se guarda en el móvil
+const horizontes = {};
+function horizonteDe(lugar) {
+  const k = claveHorizonte(lugar);
+  if (k in horizontes) return horizontes[k];
+  const guardado = leerLS(k);
+  if (horizonteValido(guardado)) return (horizontes[k] = guardado);
+  horizontes[k] = null;
+  calcularHorizonte(lugar).then((h) => {
+    horizontes[k] = h; guardarLS(k, h);
+    const l = lugarActual();
+    if (claveHorizonte(l) === k && memoria[l.id]) pintar(memoria[l.id], l);
+  }).catch(() => { setTimeout(() => { delete horizontes[k]; }, 60000); });
+  return null;
+}
+
+// Lo que se cultiva alrededor, a grandes rasgos
+function sueloDe(lugar) {
+  const p = lugar.provincia;
+  if (['jaen', 'cordoba', 'granada'].includes(p)) return 'olivar';
+  if (['burgos', 'valladolid', 'soria', 'segovia', 'palencia', 'zamora', 'leon', 'la rioja', 'ciudad real', 'toledo', 'albacete', 'cuenca'].includes(p)) return 'vinedo';
+  return 'campo';
+}
+
+// El castillo de Santa Catalina se ve desde Jaén y sus alrededores
+const CASTILLO = { lat: 37.7676, lon: -3.8017, alt: 820 };
+function castilloDe(lugar, hz) {
+  const d = distanciaKm(lugar.lat, lugar.lon, CASTILLO.lat, CASTILLO.lon);
+  if (d > 12 || d < 0.3) return null;
+  const r = Math.PI / 180, f1 = lugar.lat * r, f2 = CASTILLO.lat * r, dl = (CASTILLO.lon - lugar.lon) * r;
+  const rumbo = Math.atan2(Math.sin(dl) * Math.cos(f2), Math.cos(f1) * Math.sin(f2) - Math.sin(f1) * Math.cos(f2) * Math.cos(dl)) / r;
+  const az = ((rumbo - 180 + 540) % 360) - 180;
+  if (Math.abs(az) > 58) return null;
+  let ang = Math.atan2(CASTILLO.alt - ((hz && hz.altura) || (lugar.elev ?? 580) + 12), d * 1000) / r;
+  // sobre la cresta que se ve en esa dirección
+  if (hz) { const i = Math.round(az) - hz.acimuts[0]; ang = Math.max(hz.capas.cerca[i], hz.capas.media[i]); }
+  return { az, ang };
+}
+
+function paisajeDe(lugar, mes) {
+  const hz = horizonteDe(lugar);
+  let semilla = 0;
+  for (const ch of String(lugar.id || lugar.nombre)) semilla = (semilla * 31 + ch.charCodeAt(0)) >>> 0;
+  return { horizonte: hz, suelo: sueloDe(lugar), castillo: castilloDe(lugar, hz), mes, semilla };
+}
 
 let ultimoCtx = null;
 function pintarTonos() {

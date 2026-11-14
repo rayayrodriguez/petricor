@@ -7,6 +7,10 @@
 // relámpagos y, por último, gotas en el cristal cuando llueve.
 
 import { ESTRELLAS } from './estrellas.js';
+import { pintarPaisaje, pintarBokeh } from './paisaje.js';
+
+// Altura del horizonte en la pantalla: por debajo queda el paisaje del lugar
+const HOR = 0.5;
 
 const RAD = Math.PI / 180;
 // Color de las estrellas según su índice B-V, suavizado como se ve a simple vista
@@ -171,6 +175,22 @@ function texturaLuna() {
 }
 
 function lienzo(w, h) { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; }
+
+// Desenfoque como el de una foto enfocada en el cristal. Si el navegador sabe aplicar filtros al
+// lienzo se usa; si no, se encoge y se vuelve a estirar, que suaviza casi igual
+function desenfocar(c, r) {
+  const g = c.getContext('2d'), copia = lienzo(c.width, c.height);
+  copia.getContext('2d').drawImage(c, 0, 0);
+  g.save(); g.setTransform(1, 0, 0, 1, 0, 0);
+  if (typeof g.filter === 'string') {
+    g.clearRect(0, 0, c.width, c.height); g.filter = `blur(${r}px)`; g.drawImage(copia, 0, 0); g.filter = 'none';
+  } else {
+    const f = Math.max(2, Math.round(r / 1.5)), p = lienzo(Math.ceil(c.width / f), Math.ceil(c.height / f)), pg = p.getContext('2d');
+    pg.imageSmoothingQuality = 'high'; pg.drawImage(copia, 0, 0, p.width, p.height);
+    g.clearRect(0, 0, c.width, c.height); g.imageSmoothingQuality = 'high'; g.drawImage(p, 0, 0, c.width, c.height);
+  }
+  g.restore();
+}
 
 // Colorea una textura: sombra de fondo, luz según el tono y, al final, la forma de la nube
 let temporal = null, coloreada = null;
@@ -948,7 +968,7 @@ export class Cielo {
   }
 
   set(estado) {
-    const clave = () => [this.estado.tipo, Math.round(this.estado.nubes / 10), Math.round(this.fuerza() * 4)].join('|');
+    const clave = () => [this.estado.tipo, Math.round(this.estado.nubes / 10), Math.round(this.fuerza() * 4), this.estado.semilla].join("|");
     const antes = clave(), altAntes = this.sol0 ? this.sol0.alt : null;
     this.estado = { ...this.estado, ...estado };
     this.sol0 = this.astros();
@@ -974,6 +994,31 @@ export class Cielo {
     g.clearRect(0, 0, this.anterior.width, this.anterior.height);
     g.drawImage(this.c, 0, 0);
     this.mezcla = 1;
+  }
+
+  // Paisaje del lugar, pintado aparte y guardado mientras no cambie la luz. Con lluvia se desenfoca,
+  // porque la vista se queda en el cristal mojado, como en una foto
+  paisaje() {
+    const e = this.estado, L = this.luz, { w, h } = this;
+    const clave = [w, h, e.semilla, !!e.horizonte, e.suelo, e.poblacion, e.mes, !!e.castillo, Math.round(L.dia * 30), Math.round(L.k * 10), L.g,
+      Math.round(L.lunar * 5), this.cristalActivo, L.cielo[1].map((v) => Math.round(v / 6)).join('.')].join('|');
+    const ahora = performance.now();
+    if (clave !== this.clavePaisaje && (!this.lienzoPaisaje || ahora - (this.tPaisaje || 0) > 1500 || !this.lienzoPaisaje.listo)) {
+      this.clavePaisaje = clave; this.tPaisaje = ahora;
+      const dpr = this.dpr || 1;
+      if (!this.lienzoPaisaje || this.lienzoPaisaje.width !== Math.round(w * dpr) || this.lienzoPaisaje.height !== Math.round(h * dpr)) this.lienzoPaisaje = lienzo(Math.round(w * dpr), Math.round(h * dpr));
+      const c = this.lienzoPaisaje, g = c.getContext('2d');
+      g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, c.width, c.height); g.setTransform(dpr, 0, 0, dpr, 0, 0);
+      const grupoE = grupo(e.tipo);
+      const { luces, noche } = pintarPaisaje(g, w, h, (alt, az) => this.proyectarLibre(alt * RAD, az * RAD), L, {
+        desenfocado: this.cristalActivo,
+        horizonte: e.horizonte, suelo: e.suelo, poblacion: e.poblacion, mes: e.mes, castillo: e.castillo, semilla: e.semilla,
+        lluvia: grupoE === 'lluvia' || grupoE === 'tormenta', nieve: grupoE === 'nieve', niebla: grupoE === 'niebla'
+      });
+      if (this.cristalActivo) { desenfocar(c, 6 * dpr); if (luces.length) pintarBokeh(g, luces, noche); }
+      c.listo = true;
+    }
+    this.ctx.drawImage(this.lienzoPaisaje, 0, 0, w, h);
   }
 
   // Todos los colores del momento, según la altura del sol, la luna y lo tapado que esté
@@ -1011,7 +1056,7 @@ export class Cielo {
   // Proyección estereográfica del cielo mirando al sur: conserva la forma de las constelaciones
   proyectar(alt, az) {
     const { w, h } = this, a0 = 40 * RAD;
-    const k = Math.min(w / 2 / 0.9326, 0.373 * h), cy = h * 0.62 - k * 2 * Math.tan(a0 / 2);
+    const k = Math.min(w / 2 / 0.9326, 0.373 * h), cy = h * HOR - k * 2 * Math.tan(a0 / 2);
     const ca = Math.cos(alt), sur = ca * Math.cos(az), oeste = ca * Math.sin(az), arriba = Math.sin(alt);
     const dot = sur * Math.cos(a0) + arriba * Math.sin(a0);
     if (dot < -0.3) return null;
@@ -1162,13 +1207,14 @@ export class Cielo {
     const L = this.luz, { alt } = this.sol0;
     this.actualizarViento(dt);
     const fondo = ctx.createLinearGradient(0, 0, 0, h);
-    fondo.addColorStop(0, rgba(L.cielo[0])); fondo.addColorStop(0.62, rgba(mezclar(L.cielo[0], L.cielo[1], 0.85))); fondo.addColorStop(1, rgba(L.cielo[1]));
+    fondo.addColorStop(0, rgba(L.cielo[0])); fondo.addColorStop(HOR, rgba(mezclar(L.cielo[0], L.cielo[1], 0.85))); fondo.addColorStop(1, rgba(L.cielo[1]));
     ctx.fillStyle = fondo; ctx.fillRect(0, 0, w, h);
 
     if (L.estrellas > 0.02) this.noche(dt);
     this.luna();
     this.sol();
     this.nubes(dt);
+    this.paisaje();
     if (this.bancos.length) this.niebla(dt);
     this.luzVolumetrica();
     if (this.cortinas) this.cortina(dt);
@@ -1217,7 +1263,7 @@ export class Cielo {
 
   // De grados a pantalla: el horizonte queda a media altura y se mira hacia el sur, con el este a la izquierda
   aPantalla(alt, az) {
-    const hor = this.h * 0.62;
+    const hor = this.h * HOR;
     const x = this.w * (0.5 + 0.42 * Math.max(-1.1, Math.min(1.1, az / 90)));
     const y = hor - (hor - this.h * 0.07) * Math.min(1, Math.sin(alt * Math.PI / 180) / Math.sin(55 * Math.PI / 180));
     return [x, y];
@@ -1273,7 +1319,7 @@ export class Cielo {
     // Resplandor del crepúsculo en el horizonte, del lado del sol
     const crep = sube(-12, -2, alt) * (1 - sube(4, 14, alt)) * (0.35 + 0.65 * claro);
     if (crep > 0.01) {
-      const hy = h * 0.62, rx = w * 1.1;
+      const hy = h * HOR, rx = w * 1.1;
       const gr = ctx.createRadialGradient(sx, hy, 0, sx, hy, rx);
       const c = alt < -5 ? [200, 120, 150] : [255, 150, 90];
       gr.addColorStop(0, rgba(c, 0.55 * crep)); gr.addColorStop(0.45, rgba(c, 0.18 * crep)); gr.addColorStop(1, rgba(c, 0));
@@ -1593,7 +1639,7 @@ export class Cielo {
 
   proyectarLibre(alt, az) {
     const { w, h } = this, a0 = 40 * RAD;
-    const k = Math.min(w / 2 / 0.9326, 0.373 * h), cy = h * 0.62 - k * 2 * Math.tan(a0 / 2);
+    const k = Math.min(w / 2 / 0.9326, 0.373 * h), cy = h * HOR - k * 2 * Math.tan(a0 / 2);
     const ca = Math.cos(alt), sur = ca * Math.cos(az), oeste = ca * Math.sin(az), arriba = Math.sin(alt);
     const dot = sur * Math.cos(a0) + arriba * Math.sin(a0);
     if (dot < -0.92) return null;
