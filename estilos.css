@@ -263,6 +263,7 @@ h2, h3 { margin: 0; font-weight: 600; }
 .interruptor { display: flex; gap: 8px; align-items: center; font-size: 13px; }
 input[type='checkbox'] { accent-color: var(--acento); width: 18px; height: 18px; }
 .segmentos { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; padding: 4px; border-radius: 14px; background: rgba(255, 255, 255, 0.08); }
+.segmentos.dos { grid-template-columns: repeat(2, 1fr); }
 .segmentos button { padding: 9px 6px; border-radius: 10px; font-size: 14px; color: var(--tinta-2); }
 .segmentos button[aria-checked='true'] { background: rgba(255, 255, 255, 0.16); color: var(--tinta); font-weight: 600; }
 .mosaico.ancho { grid-column: 1 / -1; }

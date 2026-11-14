@@ -1532,6 +1532,7 @@ export class Cielo {
       } else {
         this.flash = azar(0.35, 0.6);
       }
+      if (this.alRayo) this.alRayo(cerca);
       this.parpadeo = Math.random() < 0.6 ? azar(0.08, 0.16) : 0;
       this.proxRayo = azar(4, 11);
     }

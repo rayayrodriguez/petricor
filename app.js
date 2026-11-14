@@ -1,6 +1,7 @@
 import { ZONAS, PROVINCIAS, ALIAS_PROVINCIA } from './zonas.js';
 import { frase, TONOS } from './frases.js';
 import { Cielo } from './cielo.js';
+import { Sonido } from './sonido.js';
 import { icono, tipoCodigo, textoCodigo, gota, flecha } from './iconos.js';
 import { alturaSol, solDia, faseLuna, posicionSol, posicionLuna, planetas, tiempoSidereo } from './astro.js';
 import { MODELOS, ESTACION, CORRECCIONES_INICIALES, media, max, min, sum, clamp, distanciaKm, fmt, partes, json,
@@ -79,6 +80,7 @@ let obsJaen = leerLS('petricor.obs', null);
 let aciertos = leerLS('petricor.aciertos', null);
 const memoria = {};
 let cielo;
+const sonido = new Sonido(estado.sonido !== false);
 
 // ---------------------------------------------------------------- datos remotos
 
@@ -221,6 +223,7 @@ function pintar(mod, lugar) {
     altSol: ps.altitud, azSol: ps.azimut, altLuna: pl.altitud, azLuna: pl.azimut, luna: fl.fase, iluminada: fl.iluminada,
     lat: lugar.lat, tsl: tiempoSidereo(ahoraMs, lugar.lon), planetas: planetas(ahoraMs, lugar.lat, lugar.lon),
     poblacion: lugar.poblacion ?? (lugar.id === 'jaen' ? 112000 : null) });
+  sonido.set({ tipo, fase, intensidad: h0.prec || 0, viento: h0.viento ?? 8, racha: h0.racha ?? null, temp: tAhora, mes });
   document.querySelector('meta[name="theme-color"]').setAttribute('content', fase === 'noche' ? '#0b1226' : '#2a4f86');
 }
 
@@ -894,7 +897,15 @@ function pintarTonos() {
 }
 
 $('#btn-lugares').addEventListener('click', () => { pintarMisLugares(); abrirHoja('hoja-lugares'); setTimeout(() => $('#buscar').focus(), 250); });
-$('#btn-ajustes').addEventListener('click', () => { pintarTonos(); pintarPush(); abrirHoja('hoja-ajustes'); });
+function pintarSonido() {
+  const si = estado.sonido !== false;
+  $('#sonido-seg').innerHTML = [[true, 'Con sonido'], [false, 'Sin sonido']].map(([v, n]) => `<button role="radio" aria-checked="${si === v}" data-v="${v}">${n}</button>`).join('');
+  $('#sonido-seg').querySelectorAll('button').forEach((b) => b.addEventListener('click', () => {
+    estado.sonido = b.dataset.v === 'true'; guardar(); sonido.activar(estado.sonido); pintarSonido();
+  }));
+}
+
+$('#btn-ajustes').addEventListener('click', () => { pintarTonos(); pintarSonido(); pintarPush(); abrirHoja('hoja-ajustes'); });
 $('#btn-recargar').addEventListener('click', () => { cerrarHoja($('#hoja-ajustes')); cargar(true); });
 
 // Deslizar entre lugares sobre la cabecera
@@ -977,6 +988,8 @@ document.addEventListener('visibilitychange', () => {
 // ---------------------------------------------------------------- arranque
 
 cielo = new Cielo($('#cielo'));
+// El trueno suena un poco después de cada relámpago, como en la realidad
+cielo.alRayo = (cerca) => sonido.trueno(cerca);
 cielo.arrancar();
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 cargar();
