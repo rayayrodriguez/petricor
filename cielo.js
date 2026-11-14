@@ -267,28 +267,267 @@ function spriteRaya(rgb) {
   return c;
 }
 
-// Sprite de una gota en el cristal: borde oscuro, centro que refleja el cielo y un brillo arriba.
+// Sprite de una gota en el cristal, al doble de resolución. Una gota es una lente:
+// enseña el cielo del revés (clara abajo, más oscura arriba), tiene el borde oscuro
+// por la refracción y un brillo pequeño donde refleja la luz.
+const ESC_GOTA = 2;
 function spriteGota(r) {
+  const R = r * ESC_GOTA;
+  const t = Math.ceil(R * 2 + 4);
   const c = document.createElement('canvas');
-  const t = Math.ceil(r * 2 + 4);
   c.width = c.height = t;
   const g = c.getContext('2d');
   const cx = t / 2, cy = t / 2;
-  const cuerpo = g.createRadialGradient(cx - r * 0.25, cy - r * 0.3, r * 0.1, cx, cy, r);
-  cuerpo.addColorStop(0, 'rgba(255,255,255,0.10)');
-  cuerpo.addColorStop(0.65, 'rgba(210,225,245,0.16)');
-  cuerpo.addColorStop(0.92, 'rgba(15,22,36,0.34)');
-  cuerpo.addColorStop(1, 'rgba(15,22,36,0)');
-  g.fillStyle = cuerpo; g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2); g.fill();
-  const brillo = g.createRadialGradient(cx - r * 0.35, cy - r * 0.4, 0, cx - r * 0.35, cy - r * 0.4, r * 0.38);
-  brillo.addColorStop(0, 'rgba(255,255,255,0.85)');
+  g.save(); g.beginPath(); g.arc(cx, cy, R, 0, Math.PI * 2); g.clip();
+  const cuerpo = g.createLinearGradient(0, cy - R, 0, cy + R);
+  cuerpo.addColorStop(0, 'rgba(16,22,34,0.46)');
+  cuerpo.addColorStop(0.42, 'rgba(70,80,96,0.2)');
+  cuerpo.addColorStop(0.8, 'rgba(228,236,246,0.36)');
+  cuerpo.addColorStop(1, 'rgba(255,255,255,0.55)');
+  g.fillStyle = cuerpo; g.fillRect(0, 0, t, t);
+  const borde = g.createRadialGradient(cx, cy + R * 0.15, R * 0.5, cx, cy, R);
+  borde.addColorStop(0, 'rgba(8,12,20,0)');
+  borde.addColorStop(0.78, 'rgba(8,12,20,0.18)');
+  borde.addColorStop(1, 'rgba(8,12,20,0.55)');
+  g.fillStyle = borde; g.fillRect(0, 0, t, t);
+  g.restore();
+  const bx = cx - R * 0.32, by = cy - R * 0.45;
+  const brillo = g.createRadialGradient(bx, by, 0, bx, by, R * 0.32);
+  brillo.addColorStop(0, 'rgba(255,255,255,0.95)');
+  brillo.addColorStop(0.45, 'rgba(255,255,255,0.35)');
   brillo.addColorStop(1, 'rgba(255,255,255,0)');
-  g.fillStyle = brillo; g.beginPath(); g.arc(cx - r * 0.35, cy - r * 0.4, r * 0.38, 0, Math.PI * 2); g.fill();
-  const reflejo = g.createRadialGradient(cx + r * 0.2, cy + r * 0.45, 0, cx + r * 0.2, cy + r * 0.45, r * 0.35);
-  reflejo.addColorStop(0, 'rgba(255,255,255,0.28)');
-  reflejo.addColorStop(1, 'rgba(255,255,255,0)');
-  g.fillStyle = reflejo; g.beginPath(); g.arc(cx + r * 0.2, cy + r * 0.45, r * 0.35, 0, Math.PI * 2); g.fill();
+  g.fillStyle = brillo; g.fillRect(0, 0, t, t);
+  if (R > 5) {
+    g.beginPath(); g.arc(cx, cy, R * 0.86, 0.2 * Math.PI, 0.8 * Math.PI);
+    g.lineWidth = R * 0.1; g.lineCap = 'round'; g.strokeStyle = 'rgba(255,255,255,0.3)'; g.stroke();
+  }
   return c;
+}
+
+// Microgota de la neblina: un punto de agua claro con el borde apenas oscuro
+function spriteMicro() {
+  const c = document.createElement('canvas');
+  c.width = c.height = 8;
+  const g = c.getContext('2d');
+  const r = g.createRadialGradient(3.4, 3.4, 0, 4, 4, 4);
+  r.addColorStop(0, 'rgba(255,255,255,0.75)');
+  r.addColorStop(0.55, 'rgba(225,232,242,0.35)');
+  r.addColorStop(0.85, 'rgba(20,26,38,0.28)');
+  r.addColorStop(1, 'rgba(20,26,38,0)');
+  g.fillStyle = r; g.fillRect(0, 0, 8, 8);
+  return c;
+}
+
+// ── Gotas en el cristal ──
+// Las gotas que golpean el cristal se quedan pegadas. Si una cae sobre otra, se juntan y crecen.
+// Cuando una pesa lo bastante vence el agarre y resbala a tirones: se traga las que encuentra,
+// deja detrás un reguero de gotitas y limpia a su paso la neblina de microgotas.
+const CELDA = 20, MAX_GOTAS = 650, R_RESBALA = 5.2;
+
+class Cristal {
+  constructor() {
+    this.gotas = []; this.w = 0; this.h = 0; this.secar = 0; this.juntar = 0; this.lleno = false;
+    this.sprites = [2, 4, 7, 11, 16].map((r) => ({ r, img: spriteGota(r) }));
+    this.spriteMicro = spriteMicro();
+  }
+
+  medir(w, h, dpr) {
+    if (this.micro && this.w === w && this.h === h) return;
+    this.w = w; this.h = h;
+    this.micro = document.createElement('canvas');
+    this.micro.width = Math.round(w * dpr); this.micro.height = Math.round(h * dpr);
+    this.m = this.micro.getContext('2d');
+    this.m.setTransform(dpr, 0, 0, dpr, 0, 0);
+    this.vaciar();
+  }
+
+  vaciar() {
+    this.gotas = []; this.lleno = false;
+    if (this.m) this.m.clearRect(0, 0, this.w, this.h);
+  }
+
+  // Cuánta agua llega según el tipo de lluvia. «crece» es lo que engorda cada gota por segundo
+  // al ir recogiendo la neblina que la rodea (en superficie, px²)
+  ritmo(fina, f) {
+    return fina
+      ? { micro: 230, gotas: 18, rmin: 0.8, rmax: 2.8, inicial: 380, crece: 0.3 }
+      : { micro: 160 + f * 280, gotas: 25 + f * 70, rmin: 1, rmax: 3.5 + f * 2.5, inicial: 420 + f * 160, crece: 0.45 + f * 1.3 };
+  }
+
+  radio(R) { return R.rmin + (R.rmax - R.rmin) * Math.pow(Math.random(), 2.4); }
+
+  sprite(r) { return this.sprites.find((p) => p.r >= r) || this.sprites[this.sprites.length - 1]; }
+
+  dibujar(ctx, x, y, r, sx, sy, a) {
+    const s = this.sprite(r), t = (s.img.width / ESC_GOTA) * (r / s.r);
+    ctx.globalAlpha = a;
+    ctx.drawImage(s.img, x - (t * sx) / 2, y - (t * sy) / 2, t * sx, t * sy);
+  }
+
+  microgota() {
+    const r = azar(0.4, 1.4), x = azar(0, this.w), y = azar(0, this.h);
+    this.m.globalAlpha = azar(0.45, 1);
+    this.m.drawImage(this.spriteMicro, x - r, y - r, r * 2, r * 2);
+  }
+
+  // Rejilla para encontrar vecinas sin comparar todas con todas
+  indexar() {
+    this.celdas = new Map();
+    for (const d of this.gotas) if (d.viva) this.meter(d);
+  }
+
+  meter(d) {
+    const k = (Math.floor(d.y / CELDA) + 4) * 4096 + Math.floor(d.x / CELDA) + 4;
+    const l = this.celdas.get(k);
+    if (l) l.push(d); else this.celdas.set(k, [d]);
+  }
+
+  // Primera gota que se solapa con el círculo (x, y, r); con «delante», solo las que tiene por debajo o al lado
+  tocando(x, y, r, excepto, delante) {
+    const n = Math.ceil((r + 16) / CELDA), cx = Math.floor(x / CELDA), cy = Math.floor(y / CELDA);
+    for (let j = cy - n; j <= cy + n; j++) for (let i = cx - n; i <= cx + n; i++) {
+      const l = this.celdas.get((j + 4) * 4096 + i + 4);
+      if (!l) continue;
+      for (const o of l) {
+        if (o === excepto || !o.viva || (delante && o.y < y - r * 0.4)) continue;
+        const dx = o.x - x, dy = o.y - y, lim = (o.r + r) * 0.82;
+        if (dx * dx + dy * dy < lim * lim) return o;
+      }
+    }
+    return null;
+  }
+
+  nueva(x, y, r, agarre = azar(0.8, 1.45)) {
+    return { x, y, r, vy: 0, mueve: false, agarre, pausa: 0, rastro: 0, deriva: azar(-0.5, 0.5), viva: true, temblor: 0, eje: 0, sx: azar(0.93, 1.07), crece: azar(0.2, 1.8) };
+  }
+
+  caer(x, y, r) {
+    const o = this.tocando(x, y, r);
+    if (o) { this.unir(o, { x, y, r, vy: 0 }); this.fusionar(o); return; }
+    if (this.gotas.length >= MAX_GOTAS) return;
+    const d = this.nueva(x, y, r);
+    this.gotas.push(d); this.meter(d);
+  }
+
+  // «a» se queda con el agua de «b»: se suman las superficies y el centro se va hacia la mayor
+  unir(a, b) {
+    const ma = a.r * a.r, mb = b.r * b.r, m = ma + mb;
+    a.eje = Math.atan2(b.y - a.y, b.x - a.x);
+    a.temblor = Math.min(1, a.temblor + 0.35 + 0.65 * mb / m);
+    a.x = (a.x * ma + b.x * mb) / m; a.y = (a.y * ma + b.y * mb) / m;
+    a.vy = (a.vy * ma + (b.vy || 0) * mb) / m;
+    a.r = Math.min(16, Math.sqrt(m));
+    b.viva = false;
+  }
+
+  // Al crecer puede tocar a sus vecinas: se juntan en cadena
+  fusionar(a) {
+    for (let n = 0; n < 3; n++) {
+      const o = this.tocando(a.x, a.y, a.r, a);
+      if (!o) return;
+      if (o.r > a.r && !a.mueve) { this.unir(o, a); a = o; } else this.unir(a, o);
+    }
+  }
+
+  // Al empezar, el cristal ya lleva un rato mojándose
+  poblar(fina, f) {
+    const R = this.ritmo(fina, f);
+    this.indexar();
+    for (let i = 0; i < 4000; i++) this.microgota();
+    for (let i = 0; i < R.inicial; i++) this.caer(azar(0, this.w), azar(0, this.h), this.radio(R) * (Math.random() < 0.25 ? 1.7 : 1));
+    this.lleno = true;
+  }
+
+  paso(dt, fina, f) {
+    const R = this.ritmo(fina, f), m = this.m;
+    if (!this.lleno) this.poblar(fina, f);
+    this.indexar();
+    let n = R.micro * dt;
+    for (; n > 0; n -= 1) if (Math.random() < n) this.microgota();
+    let k = R.gotas * dt;
+    for (; k > 0; k -= 1) if (Math.random() < k) this.caer(azar(0, this.w), azar(0, this.h), this.radio(R));
+    // La neblina se va secando poco a poco; si no, acabaría tapándolo todo
+    this.secar += dt;
+    if (this.secar > 2.5) {
+      this.secar = 0;
+      m.globalAlpha = 1; m.globalCompositeOperation = 'destination-out';
+      m.fillStyle = 'rgba(0,0,0,0.07)'; m.fillRect(0, 0, this.w, this.h);
+      m.globalCompositeOperation = 'source-over';
+    }
+    // Las gotas quietas engordan con la neblina y, al crecer, se tocan y se juntan
+    this.juntar += dt;
+    const revisar = this.juntar > 0.2;
+    if (revisar) this.juntar = 0;
+    for (const d of this.gotas) {
+      if (!d.viva) continue;
+      d.temblor *= Math.exp(-dt * 7);
+      if (!d.mueve) {
+        d.r = Math.min(16, Math.sqrt(d.r * d.r + R.crece * d.crece * dt));
+        if (revisar) this.fusionar(d);
+        if (!d.viva) continue;
+        if (d.r <= R_RESBALA * d.agarre) continue;
+        d.mueve = true; d.pausa = azar(0, 0.3);
+      }
+      this.resbalar(d, dt);
+    }
+    if (this.gotas.some((d) => !d.viva)) this.gotas = this.gotas.filter((d) => d.viva);
+  }
+
+  resbalar(d, dt) {
+    const m = this.m;
+    if (d.pausa > 0) { d.pausa -= dt; d.vy *= Math.exp(-dt * 12); }
+    else {
+      // cuanto más pesa, más corre
+      const vmax = Math.max(22, 30 + (d.r - R_RESBALA) * 60);
+      d.vy += (vmax - d.vy) * Math.min(1, dt * 2.5);
+      // el cristal no está igual de mojado en todas partes: avanza a tirones
+      if (Math.random() < dt * 1.4 * (R_RESBALA * 1.5 / d.r)) d.pausa = azar(0.04, 0.45);
+    }
+    d.deriva = Math.max(-1, Math.min(1, d.deriva + azar(-1, 1) * dt * 3));
+    const dy = d.vy * dt;
+    d.y += dy; d.x = Math.max(0, Math.min(this.w, d.x + d.deriva * dy * 0.22));
+    // limpia la neblina por donde pasa
+    m.globalAlpha = 1; m.globalCompositeOperation = 'destination-out'; m.fillStyle = '#000';
+    m.beginPath(); m.ellipse(d.x, d.y - d.r * 0.3, d.r * 0.95, d.r * 1.3, 0, 0, Math.PI * 2); m.fill();
+    m.globalCompositeOperation = 'source-over';
+    // se traga las que encuentra delante
+    const o = this.tocando(d.x, d.y, d.r, d, true);
+    if (o) this.unir(d, o);
+    // va dejando un reguero de gotitas y perdiendo agua
+    d.rastro += dy;
+    if (d.rastro > 5 + d.r * 0.8) {
+      d.rastro = 0;
+      if (Math.random() < 0.75 && this.gotas.length < MAX_GOTAS + 120) {
+        const rt = azar(0.5, Math.min(1.9, d.r * 0.3));
+        const t = this.nueva(d.x + azar(-0.3, 0.3) * d.r, d.y - d.r * azar(1.2, 1.6), rt);
+        t.crece = azar(0.1, 0.6);
+        this.gotas.push(t); this.meter(t);
+        d.r = Math.sqrt(Math.max(0.01, d.r * d.r - rt * rt));
+      }
+    }
+    // sin agua suficiente se queda parada
+    if (d.r < R_RESBALA * d.agarre * 0.72) { d.mueve = false; d.vy = 0; }
+    if (d.y - d.r * 2 > this.h) d.viva = false;
+  }
+
+  pintar(ctx, alfa) {
+    if (!this.micro) return;
+    ctx.globalAlpha = alfa;
+    ctx.drawImage(this.micro, 0, 0, this.w, this.h);
+    for (const d of this.gotas) {
+      if (d.mueve && d.vy > 4) {
+        // en marcha se alarga: cabeza abajo y cuerpo estirado hacia arriba
+        const e = Math.min(0.6, d.vy / 200);
+        this.dibujar(ctx, d.x, d.y - d.r * e * 0.5, d.r, 0.94, 1 + e, alfa);
+      } else if (d.temblor > 0.03) {
+        // recién unida: se estira hacia la que se ha tragado y vuelve a redondearse
+        ctx.save(); ctx.translate(d.x, d.y); ctx.rotate(d.eje);
+        this.dibujar(ctx, 0, 0, d.r, 1 + d.temblor * 0.35, 1 - d.temblor * 0.15, alfa);
+        ctx.restore();
+      } else this.dibujar(ctx, d.x, d.y, d.r, d.sx, 1 / d.sx, alfa);
+    }
+    ctx.globalAlpha = 1;
+  }
 }
 
 // Rayo ramificado por desplazamiento del punto medio
@@ -317,8 +556,8 @@ export class Cielo {
     this.t = 0; this.ultimo = 0;
     this.flash = 0; this.proxRayo = 3; this.rayo = null;
     this.estrella = null; this.proxEstrella = azar(6, 14);
-    this.salpicaduras = []; this.cristal = []; this.deslizantes = [];
-    this.sprites = [3, 5, 8, 12].map((r) => ({ r, img: spriteGota(r) }));
+    this.salpicaduras = [];
+    this.vidrio = new Cristal();
     this.cache = new Map();
     this.rayosA = texturaRayos(14, 3); this.rayosB = texturaRayos(9, 11);
     this.cortinaTex = texturaCortina(5);
@@ -341,6 +580,7 @@ export class Cielo {
     this.c.width = Math.round(this.w * dpr); this.c.height = Math.round(this.h * dpr);
     this.c.style.width = this.w + 'px'; this.c.style.height = this.h + 'px';
     this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    this.vidrio.medir(this.w, this.h, dpr);
     if (this.iniciado) { this.preparar(); this.iluminar(); }
     if (this.reducido) this.dibujar(0);
   }
@@ -534,7 +774,7 @@ export class Cielo {
 
     // Gotas en el cristal
     this.cristalActivo = lluvia;
-    if (!lluvia) { this.cristal = []; this.deslizantes = []; }
+    if (!lluvia) this.vidrio.vaciar();
   }
 
   arrancar() {
@@ -959,62 +1199,10 @@ export class Cielo {
   }
 
   gotasCristal(dt) {
-    const { ctx, w, h } = this;
-    const f = this.fuerza();
-    if (this.reducido) {
-      if (!this.cristal.length) for (let i = 0; i < 26; i++) this.cristal.push({ x: Math.random() * w, y: Math.random() * h, r: azar(1.5, 4), vida: 0, dur: 1e9 });
-    } else {
-      // Aparecen gotas nuevas en el cristal
-      // La llovizna deja en el cristal gotitas finas que casi nunca llegan a resbalar
-      const fina = this.estado.tipo === 'llovizna';
-      const ritmo = fina ? 9 : 4 + f * 30;
-      let nuevas = ritmo * dt;
-      while (nuevas > 0) {
-        if (Math.random() < nuevas && this.cristal.length < 150) this.cristal.push({ x: Math.random() * w, y: Math.random() * h, r: fina ? azar(0.7, 2) : azar(1.4, 4.2) * (Math.random() < 0.12 ? 1.7 : 1), vida: 0, dur: azar(6, 14) });
-        nuevas -= 1;
-      }
-      // De vez en cuando una gota grande resbala dejando rastro
-      if (this.deslizantes.length < (fina ? 1 : 2 + Math.round(f * 4)) && Math.random() < dt * (fina ? 0.05 : 0.3 + f)) {
-        this.deslizantes.push({ x: Math.random() * w, y: azar(-20, h * 0.5), r: azar(3.5, 6.5), v: 0, vmax: azar(60, 180), pausa: azar(0.2, 1), rastro: 0 });
-      }
-    }
-    for (let i = this.cristal.length - 1; i >= 0; i--) {
-      const d = this.cristal[i];
-      d.vida += dt;
-      const a = Math.min(1, d.vida * 3) * Math.min(1, (d.dur - d.vida) / 1.5);
-      if (a <= 0) { this.cristal.splice(i, 1); continue; }
-      this.gota(d.x, d.y, d.r, a);
-    }
-    for (let i = this.deslizantes.length - 1; i >= 0; i--) {
-      const d = this.deslizantes[i];
-      if (d.pausa > 0) { d.pausa -= dt; d.v = 0; }
-      else {
-        d.v = Math.min(d.v + 220 * dt, d.vmax);
-        d.y += d.v * dt; d.x += Math.sin(d.y * 0.05) * 0.25;
-        d.rastro += d.v * dt;
-        if (d.rastro > 14 && this.cristal.length < 140) { this.cristal.push({ x: d.x + azar(-0.8, 0.8), y: d.y - d.r * 1.6, r: azar(0.8, 1.6), vida: 0.3, dur: azar(3, 7) }); d.rastro = 0; }
-        if (Math.random() < dt * 0.8) d.pausa = azar(0.1, 0.6);
-        // absorbe las gotas pequeñas que encuentra
-        for (let j = this.cristal.length - 1; j >= 0; j--) {
-          const c = this.cristal[j];
-          if (Math.abs(c.x - d.x) < d.r && Math.abs(c.y - d.y) < d.r && c.r > 1.7) { this.cristal.splice(j, 1); d.r = Math.min(8, d.r + 0.15); }
-        }
-      }
-      if (d.y > h + 20) { this.deslizantes.splice(i, 1); continue; }
-      // forma alargada al caer
-      ctx.save(); ctx.translate(d.x, d.y); ctx.scale(1, 1 + Math.min(0.35, d.v / 500));
-      this.gota(0, 0, d.r, 1);
-      ctx.restore();
-    }
-  }
-
-  gota(x, y, r, a) {
-    const ctx = this.ctx;
-    const s = this.sprites.find((p) => p.r >= r) || this.sprites[this.sprites.length - 1];
-    const esc = r / s.r, t = s.img.width * esc;
-    ctx.globalAlpha = a * this.luz.cristal;
-    ctx.drawImage(s.img, x - t / 2, y - t / 2, t, t);
-    ctx.globalAlpha = 1;
+    const fina = this.estado.tipo === 'llovizna', f = this.fuerza();
+    if (this.reducido) { if (!this.vidrio.lleno) this.vidrio.poblar(fina, f); }
+    else this.vidrio.paso(dt, fina, f);
+    this.vidrio.pintar(this.ctx, this.luz.cristal);
   }
 
   // La luna sale, cruza y se pone a su hora, en su fase real y con la parte iluminada mirando al sol.
