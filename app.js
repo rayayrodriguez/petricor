@@ -930,7 +930,9 @@ function paisajeDe(lugar, mes) {
   const hz = horizonteDe(lugar);
   let semilla = 0;
   for (const ch of String(lugar.id || lugar.nombre)) semilla = (semilla * 31 + ch.charCodeAt(0)) >>> 0;
-  return { horizonte: hz, suelo: sueloDe(lugar), castillo: castilloDe(lugar, hz), mes, semilla };
+  // Jaén y Roa tienen vista propia: la catedral con su caserío y el paseo sobre el Duero
+  const escena = distanciaKm(lugar.lat, lugar.lon, 37.7796, -3.7849) < 8 ? 'jaen' : distanciaKm(lugar.lat, lugar.lon, 41.6966, -3.9265) < 5 ? 'roa' : null;
+  return { horizonte: hz, suelo: sueloDe(lugar), castillo: castilloDe(lugar, hz), mes, semilla, escena };
 }
 
 let ultimoCtx = null;

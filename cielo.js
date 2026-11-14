@@ -999,7 +999,7 @@ export class Cielo {
   // Paisaje del lugar, pintado aparte y guardado mientras no cambie la luz
   paisaje() {
     const e = this.estado, L = this.luz, { w, h } = this;
-    const clave = [w, h, e.semilla, !!e.horizonte, e.suelo, e.poblacion, e.mes, !!e.castillo, Math.round(L.dia * 30), Math.round(L.k * 10), L.g,
+    const clave = [w, h, e.semilla, e.escena, !!e.horizonte, e.suelo, e.poblacion, e.mes, !!e.castillo, Math.round(L.dia * 30), Math.round(L.k * 10), L.g,
       Math.round(L.lunar * 5), this.cristalActivo, L.cielo[1].map((v) => Math.round(v / 6)).join('.')].join('|');
     const ahora = performance.now();
     if (clave !== this.clavePaisaje && (!this.lienzoPaisaje || ahora - (this.tPaisaje || 0) > 1500 || !this.lienzoPaisaje.listo)) {
@@ -1011,14 +1011,14 @@ export class Cielo {
       const grupoE = grupo(e.tipo);
       const { luces, noche } = pintarPaisaje(g, w, h, (alt, az) => this.proyectarLibre(alt * RAD, az * RAD), L, {
         desenfocado: true,
-        horizonte: e.horizonte, suelo: e.suelo, poblacion: e.poblacion, mes: e.mes, castillo: e.castillo, semilla: e.semilla,
+        horizonte: e.horizonte, suelo: e.suelo, poblacion: e.poblacion, mes: e.mes, castillo: e.castillo, semilla: e.semilla, escena: e.escena,
         lluvia: grupoE === 'lluvia' || grupoE === 'tormenta', nieve: grupoE === 'nieve', niebla: grupoE === 'niebla'
       });
       // Siempre algo desenfocado, como cuando se mira por una ventana: se lee la forma y la luz, no
       // el dibujo. Con lluvia, más, porque la vista se queda en las gotas del cristal
-      const desenfoque = this.cristalActivo ? 7 : 3.2;
+      const desenfoque = this.cristalActivo ? 10 : 6.5;
       desenfocar(c, desenfoque * dpr);
-      if (luces.length) pintarBokeh(g, luces, noche, desenfoque / 7);
+      if (luces.length) pintarBokeh(g, luces, noche, desenfoque / 10);
       c.listo = true;
     }
     this.ctx.drawImage(this.lienzoPaisaje, 0, 0, w, h);
