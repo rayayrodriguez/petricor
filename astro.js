@@ -32,16 +32,42 @@ export function posicionSol(ms, lat, lon) {
   return horizontales(ha, lat * rad, decl);
 }
 
-// Altura y acimut de la luna, con una precisión de alrededor de un grado
+// Posición de la luna con los elementos de Paul Schlyter y sus principales perturbaciones:
+// el error es de pocos minutos de arco, suficiente para la fase y para colocarla en el cielo
+function lunaEcliptica(ms) {
+  const d = ms / 86400000 - 10956; // días desde el 0 de enero de 2000
+  const n = (x) => ((x % 360) + 360) % 360;
+  const N = n(125.1228 - 0.0529538083 * d), i = 5.1454, w = n(318.0634 + 0.1643573223 * d);
+  const a = 60.2666, e = 0.0549, M = n(115.3654 + 13.0649929509 * d);
+  let E = M * rad + e * Math.sin(M * rad) * (1 + e * Math.cos(M * rad));
+  for (let k = 0; k < 6; k++) E -= (E - e * Math.sin(E) - M * rad) / (1 - e * Math.cos(E));
+  const xv = a * (Math.cos(E) - e), yv = a * Math.sqrt(1 - e * e) * Math.sin(E);
+  const v = Math.atan2(yv, xv), r = Math.hypot(xv, yv);
+  const xh = r * (Math.cos(N * rad) * Math.cos(v + w * rad) - Math.sin(N * rad) * Math.sin(v + w * rad) * Math.cos(i * rad));
+  const yh = r * (Math.sin(N * rad) * Math.cos(v + w * rad) + Math.cos(N * rad) * Math.sin(v + w * rad) * Math.cos(i * rad));
+  const zh = r * Math.sin(v + w * rad) * Math.sin(i * rad);
+  let lon = Math.atan2(yh, xh) / rad, lat = Math.atan2(zh, Math.hypot(xh, yh)) / rad;
+  // Sol
+  const Ms = n(356.047 + 0.9856002585 * d), ws = 282.9404 + 4.70935e-5 * d, es = 0.016709 - 1.151e-9 * d;
+  const Es = Ms * rad + es * Math.sin(Ms * rad) * (1 + es * Math.cos(Ms * rad));
+  const lonSol = n(Math.atan2(Math.sqrt(1 - es * es) * Math.sin(Es), Math.cos(Es) - es) / rad + ws);
+  // Perturbaciones
+  const Ls = Ms + ws, Lm = N + w + M, D = (Lm - Ls) * rad, F = (Lm - N) * rad, Mm = M * rad, Mr = Ms * rad;
+  lon += -1.274 * Math.sin(Mm - 2 * D) + 0.658 * Math.sin(2 * D) - 0.186 * Math.sin(Mr) - 0.059 * Math.sin(2 * Mm - 2 * D)
+    - 0.057 * Math.sin(Mm - 2 * D + Mr) + 0.053 * Math.sin(Mm + 2 * D) + 0.046 * Math.sin(2 * D - Mr) + 0.041 * Math.sin(Mm - Mr)
+    - 0.035 * Math.sin(D) - 0.031 * Math.sin(Mm + Mr) - 0.015 * Math.sin(2 * F - 2 * D) + 0.011 * Math.sin(Mm - 4 * D);
+  lat += -0.173 * Math.sin(F - 2 * D) - 0.055 * Math.sin(Mm - F - 2 * D) - 0.046 * Math.sin(Mm + F - 2 * D)
+    + 0.033 * Math.sin(F + 2 * D) + 0.017 * Math.sin(2 * Mm + F);
+  return { lon: n(lon), lat, lonSol, d };
+}
+
+// Altura y acimut de la luna vistos desde el lugar
 export function posicionLuna(ms, lat, lon) {
-  const d = ms / 86400000 - 10957.5; // días desde J2000
-  const e = 23.4397 * rad;
-  const L = rad * (218.316 + 13.176396 * d), M = rad * (134.963 + 13.064993 * d), F = rad * (93.272 + 13.22935 * d);
-  const l = L + rad * 6.289 * Math.sin(M), b = rad * 5.128 * Math.sin(F);
-  const ra = Math.atan2(Math.sin(l) * Math.cos(e) - Math.tan(b) * Math.sin(e), Math.cos(l));
-  const dec = Math.asin(Math.sin(b) * Math.cos(e) + Math.cos(b) * Math.sin(e) * Math.sin(l));
-  const H = rad * (280.16 + 360.9856235 * d) + lon * rad - ra;
-  const p = horizontales(H, lat * rad, dec);
+  const m = lunaEcliptica(ms);
+  const ecl = (23.4393 - 3.563e-7 * m.d) * rad, l = m.lon * rad, b = m.lat * rad;
+  const ra = Math.atan2(Math.sin(l) * Math.cos(ecl) - Math.tan(b) * Math.sin(ecl), Math.cos(l));
+  const dec = Math.asin(Math.sin(b) * Math.cos(ecl) + Math.cos(b) * Math.sin(ecl) * Math.sin(l));
+  const p = horizontales(tiempoSidereo(ms, lon) * rad - ra, lat * rad, dec);
   p.altitud -= 0.95 * Math.cos(p.altitud * rad); // paralaje: la luna está cerca
   return p;
 }
@@ -120,11 +146,12 @@ export function solDia(ms, lat, lon) {
 
 // Fase lunar: 0 = nueva, 0.5 = llena
 export function faseLuna(ms) {
-  const jd = ms / 86400000 + 2440587.5;
-  const ciclo = 29.530588853;
-  let f = ((jd - 2451550.1) / ciclo) % 1;
-  if (f < 0) f += 1;
-  const iluminada = (1 - Math.cos(2 * Math.PI * f)) / 2;
+  // Fase real a partir de la separación entre la luna y el sol, no de un ciclo medio
+  const m = lunaEcliptica(ms);
+  const dif = ((m.lon - m.lonSol) % 360 + 360) % 360;
+  const elong = Math.acos(Math.cos(m.lat * rad) * Math.cos(dif * rad));
+  const iluminada = (1 - Math.cos(elong)) / 2;
+  const f = dif / 360;
   const nombres = ['Luna nueva', 'Creciente', 'Cuarto creciente', 'Gibosa creciente', 'Luna llena', 'Gibosa menguante', 'Cuarto menguante', 'Menguante'];
   const nombre = nombres[Math.round(f * 8) % 8];
   return { fase: f, iluminada, nombre };

@@ -49,7 +49,7 @@ const NUBE = [
 // Nubes gruesas: [luz, desaturación, sombra]. Cuanto más espesas, más grises y oscuras
 const ESPESOR = { despejado: [1, 0, 1], nubes: [1, 0, 1], cubierto: [0.88, 0.35, 0.8], lluvia: [0.6, 0.55, 0.62], tormenta: [0.42, 0.65, 0.45], nieve: [0.94, 0.4, 0.85], niebla: [0.97, 0.5, 1] };
 const ALFA_NUBES = { despejado: 0.75, nubes: 0.9, cubierto: 0.95, lluvia: 0.97, tormenta: 0.98, niebla: 0.6, nieve: 0.92 };
-const DISCO_SOL = [[-1, [255, 120, 60]], [2, [255, 150, 80]], [6, [255, 205, 140]], [15, [255, 240, 210]], [30, [255, 250, 236]]];
+const DISCO_SOL = [[-1, [255, 132, 64]], [2, [255, 166, 92]], [6, [255, 214, 150]], [15, [255, 244, 214]], [30, [255, 251, 238]]];
 
 const mezclar = (a, b, t) => a.map((v, i) => v + (b[i] - v) * t);
 const rgba = (c, a = 1) => `rgba(${Math.round(c[0])},${Math.round(c[1])},${Math.round(c[2])},${a})`;
@@ -139,21 +139,59 @@ function spriteEstrella(color) {
   return c;
 }
 
+// Luna con sus mares oscuros, algunos cráteres y el borde algo más oscuro
+function texturaLuna() {
+  const T = 160, c = lienzo(T, T), g = c.getContext('2d'), r = rnd(13), C = T / 2;
+  const base = g.createRadialGradient(C - 18, C - 22, 4, C, C, C);
+  base.addColorStop(0, '#fbf8ef'); base.addColorStop(0.7, '#e9e4d6'); base.addColorStop(1, '#c9c2b2');
+  g.fillStyle = base; g.beginPath(); g.arc(C, C, C, 0, Math.PI * 2); g.fill();
+  g.save(); g.beginPath(); g.arc(C, C, C, 0, Math.PI * 2); g.clip();
+  // Mares, con la forma aproximada de la cara visible: Imbrio, Serenidad, Tranquilidad, Crisis, Procelas, Nubes
+  const mares = [[0.36, 0.33, 0.2], [0.58, 0.33, 0.12], [0.63, 0.47, 0.13], [0.8, 0.38, 0.07], [0.24, 0.52, 0.2], [0.42, 0.66, 0.12], [0.55, 0.6, 0.09], [0.3, 0.72, 0.08]];
+  for (const [mx, my, mr] of mares) {
+    for (let k = 0; k < 5; k++) {
+      const x = (mx + (r() - 0.5) * mr * 0.6) * T, y = (my + (r() - 0.5) * mr * 0.6) * T, rr = mr * T * (0.55 + r() * 0.5);
+      const gr = g.createRadialGradient(x, y, 0, x, y, rr);
+      gr.addColorStop(0, 'rgba(120,118,112,0.28)'); gr.addColorStop(0.7, 'rgba(120,118,112,0.16)'); gr.addColorStop(1, 'rgba(120,118,112,0)');
+      g.fillStyle = gr; g.beginPath(); g.arc(x, y, rr, 0, Math.PI * 2); g.fill();
+    }
+  }
+  for (let k = 0; k < 40; k++) {
+    const x = r() * T, y = r() * T, rr = 0.8 + r() * 3.2;
+    g.fillStyle = `rgba(90,88,84,${0.12 + r() * 0.12})`; g.beginPath(); g.arc(x, y, rr, 0, Math.PI * 2); g.fill();
+    g.fillStyle = `rgba(255,255,250,${0.1 + r() * 0.15})`; g.beginPath(); g.arc(x - rr * 0.3, y - rr * 0.3, rr * 0.6, 0, Math.PI * 2); g.fill();
+  }
+  // Tycho, el cráter brillante de abajo
+  g.fillStyle = 'rgba(255,255,252,0.55)'; g.beginPath(); g.arc(0.45 * T, 0.84 * T, 3, 0, Math.PI * 2); g.fill();
+  const borde = g.createRadialGradient(C, C, C * 0.7, C, C, C);
+  borde.addColorStop(0, 'rgba(60,56,50,0)'); borde.addColorStop(1, 'rgba(60,56,50,0.35)');
+  g.fillStyle = borde; g.fillRect(0, 0, T, T);
+  g.restore();
+  return c;
+}
+
 function lienzo(w, h) { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; }
 
 // Colorea una textura: sombra de fondo, luz según el tono y, al final, la forma de la nube
-let temporal = null;
+let temporal = null, coloreada = null;
+// La textura coloreada se copia tres veces seguidas en un solo lienzo: al dibujarla de una vez
+// no hay uniones entre copias en pantalla, que eran la línea vertical que se veía en las nubes
 function tenir(capa, luz, sombra) {
   const { mascara, tonos } = capa.tex, W = mascara.width, H = mascara.height;
-  if (!capa.img || capa.img.width !== W) capa.img = lienzo(W, H);
   if (!temporal || temporal.width !== W || temporal.height !== H) temporal = lienzo(W, H);
-  const g = capa.img.getContext('2d'), t = temporal.getContext('2d');
-  g.globalCompositeOperation = 'source-over'; g.fillStyle = rgba(sombra); g.fillRect(0, 0, W, H);
+  if (!coloreada || coloreada.width !== W || coloreada.height !== H) coloreada = lienzo(W, H);
+  const g = coloreada.getContext('2d'), t = temporal.getContext('2d');
+  g.globalCompositeOperation = 'source-over'; g.clearRect(0, 0, W, H); g.fillStyle = rgba(sombra); g.fillRect(0, 0, W, H);
   t.globalCompositeOperation = 'source-over'; t.clearRect(0, 0, W, H); t.drawImage(tonos, 0, 0);
   t.globalCompositeOperation = 'source-in'; t.fillStyle = rgba(luz); t.fillRect(0, 0, W, H);
   g.drawImage(temporal, 0, 0);
   g.globalCompositeOperation = 'destination-in'; g.drawImage(mascara, 0, 0);
   g.globalCompositeOperation = 'source-over';
+  if (!capa.img || capa.img.width !== W * 3 || capa.img.height !== H) capa.img = lienzo(W * 3, H);
+  const f = capa.img.getContext('2d');
+  f.clearRect(0, 0, W * 3, H);
+  for (let k = 0; k < 3; k++) f.drawImage(coloreada, k * W, 0);
+  capa.periodo = W;
 }
 
 // Rayos de sol pintados en pequeño: al ampliarlos quedan con bordes suaves
@@ -340,7 +378,7 @@ export class Cielo {
     this.luz = {
       cielo, dia, lunar, k, g,
       estrellas: g === 'despejado' ? 1 : g === 'nubes' ? 1 - 0.25 * cubre : 0,
-      lluvia: mezclar([110, 118, 134], [214, 226, 244], Math.max(0.25, dia)),
+      lluvia: mezclar([150, 160, 178], [226, 236, 250], Math.max(0.3, dia)),
       nieve: 0.6 + 0.4 * dia,
       cristal: 0.55 + 0.45 * dia
     };
@@ -440,13 +478,13 @@ export class Cielo {
     // Lluvia en tres profundidades
     const lluvia = g === 'lluvia' || g === 'tormenta';
     const fina = e.tipo === 'llovizna';
-    const base = lluvia ? Math.round(fina ? 300 : 60 + Math.pow(f, 1.4) * 950) : 0;
+    const base = lluvia ? Math.round(fina ? 380 : 140 + Math.pow(f, 1.2) * 1100) : 0;
     this.cortinas = lluvia && f >= 0.6;
     const capas = fina
-      ? [{ p: 1, largo: [5, 9], vel: [280, 380], ancho: 0.8, alfa: 0.32 }]
-      : [{ p: 0.5, largo: [9, 15], vel: [520, 680], ancho: 0.7, alfa: 0.16 },
-         { p: 0.33, largo: [16, 24], vel: [780, 980], ancho: 1.05, alfa: 0.26 },
-         { p: 0.17, largo: [26, 40], vel: [1100, 1400], ancho: 1.5, alfa: 0.36 }];
+      ? [{ p: 1, largo: [6, 11], vel: [280, 380], ancho: 1, alfa: 0.42 }]
+      : [{ p: 0.46, largo: [11, 18], vel: [520, 680], ancho: 0.9, alfa: 0.24 },
+         { p: 0.34, largo: [20, 30], vel: [780, 980], ancho: 1.35, alfa: 0.38 },
+         { p: 0.2, largo: [32, 50], vel: [1100, 1400], ancho: 2, alfa: 0.55 }];
     this.capas = capas.map((c, i) => ({ ...c, cerca: i === capas.length - 1 && !fina,
       gotas: Array.from({ length: Math.round(base * c.p) }, () => ({ x: Math.random() * (w + 200) - 100, y: Math.random() * h, l: azar(...c.largo), v: azar(...c.vel), s: h * azar(0.82, 1) })) }));
 
@@ -498,6 +536,7 @@ export class Cielo {
     this.sol();
     this.nubes(dt);
     if (this.bancos.length) this.niebla(dt);
+    this.luzVolumetrica();
     if (this.cortinas) this.cortina(dt);
     if (this.capas.length && this.capas[0].gotas.length) this.lluvia(dt);
     if (this.copos.length) this.nieve(dt);
@@ -599,29 +638,53 @@ export class Cielo {
       gr.addColorStop(0, rgba(c, 0.55 * crep)); gr.addColorStop(0.45, rgba(c, 0.18 * crep)); gr.addColorStop(1, rgba(c, 0));
       ctx.fillStyle = gr; ctx.fillRect(0, 0, w, h);
     }
-    if (alt < -1) return;
+    if (alt < -1.5) return;
     const color = tramo(DISCO_SOL, alt);
     const bajo = 1 - sube(2, 20, alt);
-    const fuerza = 0.25 + 0.75 * claro * claro;
-    const radio = Math.max(w, h) * (0.4 + 0.25 * bajo);
-    const gl = ctx.createRadialGradient(sx, sy, 0, sx, sy, radio);
-    gl.addColorStop(0, rgba(color, 0.85 * fuerza));
-    gl.addColorStop(0.04, rgba(color, 0.5 * fuerza));
-    gl.addColorStop(0.2, rgba(color, 0.13 * fuerza));
-    gl.addColorStop(1, rgba(color, 0));
-    ctx.fillStyle = gl; ctx.fillRect(0, 0, w, h);
-    // Disco: solo se distingue con poca nube; tras nubes espesas queda el resplandor
-    if (claro > 0.5) {
-      ctx.fillStyle = rgba(mezclar(color, [255, 255, 255], 0.6), Math.min(1, (claro - 0.5) * 2));
-      ctx.beginPath(); ctx.arc(sx, sy, Math.min(w, h) * 0.028, 0, Math.PI * 2); ctx.fill();
+    const fino = L.g === 'despejado' || L.g === 'nubes';
+    const R = Math.min(w, h) * 0.05 * (1 + 0.3 * bajo); // cerca del horizonte se ve más grande
+    const asoma = sube(-1.5, 0.6, alt); // al salir y al ponerse, el disco aparece poco a poco
+    // Luz del cielo alrededor del sol: blanca cerca, más cálida lejos
+    const f = (0.3 + 0.7 * claro) * asoma;
+    const halo = ctx.createRadialGradient(sx, sy, 0, sx, sy, Math.max(w, h) * (0.55 + 0.2 * bajo));
+    halo.addColorStop(0, rgba(mezclar(color, [255, 255, 255], 0.5), 0.6 * f));
+    halo.addColorStop(0.06, rgba(color, 0.36 * f));
+    halo.addColorStop(0.2, rgba(color, 0.13 * f));
+    halo.addColorStop(0.5, rgba(color, 0.04 * f));
+    halo.addColorStop(1, rgba(color, 0));
+    ctx.fillStyle = halo; ctx.fillRect(0, 0, w, h);
+    if (fino) {
+      // Corona y disco: blanco en el centro, amarillo pálido en el borde
+      ctx.save();
+      ctx.globalAlpha = asoma;
+      const corona = ctx.createRadialGradient(sx, sy, 0, sx, sy, R * 3.4);
+      corona.addColorStop(0, 'rgba(255,255,252,1)');
+      corona.addColorStop(0.27, rgba(mezclar(color, [255, 255, 255], 0.7), 0.85));
+      corona.addColorStop(0.34, rgba(color, 0.4));
+      corona.addColorStop(0.6, rgba(color, 0.12));
+      corona.addColorStop(1, rgba(color, 0));
+      ctx.fillStyle = corona; ctx.beginPath(); ctx.arc(sx, sy, R * 3.4, 0, Math.PI * 2); ctx.fill();
+      const disco = ctx.createRadialGradient(sx, sy, 0, sx, sy, R);
+      disco.addColorStop(0, '#ffffff');
+      disco.addColorStop(0.65, rgba(mezclar(color, [255, 255, 255], 0.85)));
+      disco.addColorStop(0.92, rgba(mezclar(color, [255, 255, 255], 0.45)));
+      disco.addColorStop(1, rgba(color, 0.0));
+      ctx.fillStyle = disco; ctx.beginPath(); ctx.arc(sx, sy, R, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+    } else if (L.g === 'cubierto' || L.g === 'nieve' || L.g === 'niebla') {
+      // Tras un cielo cubierto solo se adivina una mancha clara
+      const mancha = ctx.createRadialGradient(sx, sy, 0, sx, sy, R * 4);
+      mancha.addColorStop(0, `rgba(255,255,250,${0.35 * asoma})`); mancha.addColorStop(1, 'rgba(255,255,250,0)');
+      ctx.fillStyle = mancha; ctx.fillRect(sx - R * 4, sy - R * 4, R * 8, R * 8);
     }
+    this.solPantalla = { x: sx, y: sy, R, color, fino, asoma };
     if (claro < 0.6 || alt < 1) return;
-    // Rayos: dos coronas suaves que giran en sentidos opuestos y crean un brillo cambiante
+    // Rayos suaves de la atmósfera, que giran muy despacio
     const lado = Math.max(w, h) * 1.5;
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
     ctx.translate(sx, sy);
-    for (const [img, giro, a] of [[this.rayosA, 0.012, 0.09], [this.rayosB, -0.008, 0.07]]) {
+    for (const [img, giro, a] of [[this.rayosA, 0.012, 0.07], [this.rayosB, -0.008, 0.05]]) {
       ctx.save();
       ctx.rotate(this.t * giro);
       ctx.globalAlpha = a * claro * sube(1, 10, alt) * (0.85 + 0.15 * Math.sin(this.t * 0.4 + a * 50));
@@ -631,16 +694,75 @@ export class Cielo {
     ctx.restore();
   }
 
+  // Luz volumétrica: la luz del sol que pasa entre las nubes forma haces que salen del sol.
+  // Se hace en pequeño: una máscara de luz menos lo que tapan las nubes, desenfocada desde el sol
+  luzVolumetrica() {
+    const sp = this.solPantalla, L = this.luz;
+    this.solPantalla = null;
+    if (!sp || !sp.asoma) return;
+    const { ctx, w, h } = this, alt = this.sol0.alt;
+    const fuerza = ({ despejado: 0.1, nubes: 0.38, cubierto: 0.12 }[L.g] || 0) * sp.asoma * (0.6 + 0.4 * sube(-1, 8, alt) + 0.25 * (1 - sube(2, 15, alt)));
+    if (fuerza < 0.02) return;
+    const q = 4, mw = Math.ceil(w / q), mh = Math.ceil(h / q);
+    if (!this.mascaraLuz || this.mascaraLuz.width !== mw || this.mascaraLuz.height !== mh) {
+      this.mascaraLuz = lienzo(mw, mh); this.haces = lienzo(mw, mh);
+    }
+    const m = this.mascaraLuz.getContext('2d'), r = this.haces.getContext('2d');
+    const x = sp.x / q, y = sp.y / q;
+    m.setTransform(1, 0, 0, 1, 0, 0); m.globalCompositeOperation = 'source-over'; m.globalAlpha = 1;
+    m.clearRect(0, 0, mw, mh);
+    const fuente = m.createRadialGradient(x, y, 0, x, y, Math.max(mw, mh) * 0.32);
+    fuente.addColorStop(0, rgba(mezclar(sp.color, [255, 255, 255], 0.4), 0.9));
+    fuente.addColorStop(0.1, rgba(sp.color, 0.5));
+    fuente.addColorStop(0.45, rgba(sp.color, 0.12));
+    fuente.addColorStop(1, rgba(sp.color, 0));
+    m.fillStyle = fuente; m.fillRect(0, 0, mw, mh);
+    // Las nubes quitan luz donde están
+    m.globalCompositeOperation = 'destination-out';
+    m.setTransform(1 / q, 0, 0, 1 / q, 0, 0);
+    for (const c of this.capasNubes) if (c.img) this.pintarFranja(m, c);
+    for (const b of this.bancos) if (b.img) this.pintarFranja(m, b);
+    m.setTransform(1, 0, 0, 1, 0, 0); m.globalCompositeOperation = 'source-over';
+    // Desenfoque radial: copias cada vez más grandes alrededor del sol
+    r.setTransform(1, 0, 0, 1, 0, 0); r.globalAlpha = 1; r.globalCompositeOperation = 'source-over';
+    r.clearRect(0, 0, mw, mh);
+    r.globalCompositeOperation = 'lighter';
+    const N = 16;
+    for (let i = 0; i < N; i++) {
+      const k = 1 + i * 0.07;
+      r.globalAlpha = (1 - i / N) * 0.14;
+      r.setTransform(k, 0, 0, k, x * (1 - k), y * (1 - k));
+      r.drawImage(this.mascaraLuz, 0, 0);
+    }
+    r.setTransform(1, 0, 0, 1, 0, 0); r.globalAlpha = 1; r.globalCompositeOperation = 'source-over';
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = Math.min(1, fuerza);
+    ctx.drawImage(this.haces, 0, 0, w, h);
+    // Destello encima de las nubes cuando el sol queda en un claro
+    if (sp.fino) {
+      ctx.globalAlpha = 0.35 * sp.asoma;
+      const br = ctx.createRadialGradient(sp.x, sp.y, 0, sp.x, sp.y, sp.R * 2.4);
+      br.addColorStop(0, 'rgba(255,255,250,0.9)'); br.addColorStop(1, 'rgba(255,255,250,0)');
+      ctx.fillStyle = br; ctx.fillRect(sp.x - sp.R * 2.4, sp.y - sp.R * 2.4, sp.R * 4.8, sp.R * 4.8);
+    }
+    ctx.restore();
+  }
+
   // Dibuja una textura repetida en horizontal, desplazada según el tiempo
   franja(c, dt, velocidad) {
-    const { ctx, w } = this;
     if (!c.img) return;
-    const ancho = c.alto * (c.img.width / c.img.height) * c.estira;
+    const ancho = c.alto * ((c.periodo || c.img.width) / c.img.height) * c.estira;
     c.x = (c.x + (velocidad * dt) / ancho + 1) % 1;
-    let x0 = -c.x * ancho;
+    this.pintarFranja(this.ctx, c);
+  }
+
+  pintarFranja(ctx, c) {
+    const per = c.periodo || c.img.width;
+    const ancho = c.alto * (per / c.img.height) * c.estira;
     const antes = ctx.globalAlpha;
     ctx.globalAlpha = antes * (c.a ?? 1);
-    for (; x0 < w; x0 += ancho) ctx.drawImage(c.img, x0, c.y, ancho + 1, c.alto);
+    ctx.drawImage(c.img, -c.x * ancho, c.y, ancho * (c.img.width / per), c.alto);
     ctx.globalAlpha = antes;
   }
 
@@ -849,36 +971,71 @@ export class Cielo {
     ctx.globalAlpha = 1;
   }
 
-  // La luna sale, cruza y se pone a su hora; de día se ve pálida si el cielo está limpio
+  // La luna sale, cruza y se pone a su hora, en su fase real y con la parte iluminada mirando al sol.
+  // De día se ve pálida si el cielo está limpio
   luna() {
-    const { w, h } = this, L = this.luz, { altLuna, azLuna } = this.sol0;
+    const { w, h } = this, L = this.luz, { altLuna, azLuna, alt, az } = this.sol0;
     if (altLuna < -1) return;
     const noche = 1 - L.dia;
-    const alfa = (0.3 + 0.7 * noche) * (1 - 0.85 * L.k) * sube(-1, 2, altLuna);
+    const alfa = (0.35 + 0.65 * noche) * (1 - 0.85 * L.k) * sube(-1, 2, altLuna);
     if (alfa < 0.03) return;
     const p = this.proyectar(altLuna * RAD, azLuna * RAD);
-    const [x, y] = p && p[1] > h * 0.03 && p[0] > w * 0.04 && p[0] < w * 0.96 ? p : this.aPantalla(altLuna, azLuna);
-    this.dibujarLuna(x, y, Math.min(w, h) * 0.035, this.estado.luna ?? 0.5, alfa, noche, altLuna);
+    const [x, y] = p && p[1] > h * 0.05 && p[0] > w * 0.07 && p[0] < w * 0.93 ? p : this.aPantalla(altLuna, azLuna);
+    // Hacia dónde está el sol visto desde la luna en la pantalla
+    const ps = this.proyectarLibre(alt * RAD, az * RAD), creciente = (this.estado.luna ?? 0.5) < 0.5;
+    const ang = ps ? Math.atan2(ps[1] - y, ps[0] - x) : (creciente ? 0 : Math.PI);
+    this.dibujarLuna(x, y, Math.min(w, h) * 0.058, this.estado.luna ?? 0.5, alfa, noche, altLuna, ang);
   }
 
-  dibujarLuna(x, y, r, fase, alfa, noche, altura) {
+  proyectarLibre(alt, az) {
+    const { w, h } = this, a0 = 40 * RAD;
+    const k = Math.min(w / 2 / 0.9326, 0.373 * h), cy = h * 0.62 - k * 2 * Math.tan(a0 / 2);
+    const ca = Math.cos(alt), sur = ca * Math.cos(az), oeste = ca * Math.sin(az), arriba = Math.sin(alt);
+    const dot = sur * Math.cos(a0) + arriba * Math.sin(a0);
+    if (dot < -0.92) return null;
+    const f = 2 / (1 + dot);
+    return [w / 2 + k * oeste * f, cy - k * (-sur * Math.sin(a0) + arriba * Math.cos(a0)) * f];
+  }
+
+  dibujarLuna(x, y, r, fase, alfa, noche, altura, ang) {
     const ctx = this.ctx;
+    if (!this.texLuna) this.texLuna = texturaLuna();
     ctx.save();
-    ctx.globalAlpha = 0.9 * alfa;
-    const halo = ctx.createRadialGradient(x, y, r, x, y, r * 5);
-    halo.addColorStop(0, `rgba(220,228,255,${0.18 * noche})`); halo.addColorStop(1, 'rgba(220,228,255,0)');
-    ctx.fillStyle = halo; ctx.beginPath(); ctx.arc(x, y, r * 5, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = alfa;
+    // Halo de noche
+    const halo = ctx.createRadialGradient(x, y, r * 0.9, x, y, r * 6);
+    halo.addColorStop(0, `rgba(220,228,255,${0.22 * noche * (0.4 + 0.6 * (1 - Math.cos(2 * Math.PI * fase)) / 2)})`); halo.addColorStop(1, 'rgba(220,228,255,0)');
+    ctx.fillStyle = halo; ctx.beginPath(); ctx.arc(x, y, r * 6, 0, Math.PI * 2); ctx.fill();
+    // Parte en sombra: de noche se adivina por la luz que refleja la Tierra
+    ctx.save();
     ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.clip();
-    ctx.fillStyle = `rgba(40,48,70,${0.9 * noche})`; ctx.fillRect(x - r, y - r, 2 * r, 2 * r);
-    const ilum = 1 - Math.abs(fase - 0.5) * 2;
-    const creciente = fase < 0.5;
-    // Cerca del horizonte la luna se ve más anaranjada
-    ctx.fillStyle = rgba(mezclar([242, 240, 230], [255, 206, 160], 1 - sube(2, 14, altura)));
+    ctx.globalAlpha = alfa * 0.9 * noche;
+    ctx.fillStyle = 'rgb(18,22,36)'; ctx.fillRect(x - r, y - r, 2 * r, 2 * r);
+    ctx.globalAlpha = alfa * 0.13 * noche;
+    ctx.drawImage(this.texLuna, x - r, y - r, 2 * r, 2 * r);
+    ctx.restore();
+    // Parte iluminada: medio círculo del lado del sol y la línea de sombra como media elipse
+    const kx = Math.cos(2 * Math.PI * fase); // 1 luna nueva, -1 luna llena
+    ctx.save();
+    ctx.translate(x, y); ctx.rotate(ang);
     ctx.beginPath();
-    ctx.arc(x, y, r, -Math.PI / 2, Math.PI / 2, !creciente);
-    const k = (1 - 2 * ilum);
-    ctx.ellipse(x, y, Math.abs(k) * r, r, 0, Math.PI / 2, -Math.PI / 2, (k > 0) === creciente);
-    ctx.fill();
+    ctx.arc(0, 0, r, -Math.PI / 2, Math.PI / 2, false);
+    ctx.ellipse(0, 0, Math.max(0.001, Math.abs(kx) * r), r, 0, Math.PI / 2, -Math.PI / 2, kx > 0);
+    ctx.closePath();
+    ctx.restore();
+    ctx.save();
+    ctx.clip();
+    ctx.globalAlpha = alfa;
+    ctx.drawImage(this.texLuna, x - r, y - r, 2 * r, 2 * r);
+    // Cerca del horizonte se ve más anaranjada
+    const naranja = 1 - sube(2, 14, altura);
+    if (naranja > 0.02) {
+      ctx.globalCompositeOperation = 'multiply';
+      ctx.fillStyle = rgba(mezclar([255, 255, 255], [255, 196, 140], naranja));
+      ctx.fillRect(x - r, y - r, 2 * r, 2 * r);
+    }
+    ctx.restore();
     ctx.restore();
   }
+
 }
