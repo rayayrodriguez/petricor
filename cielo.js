@@ -7,10 +7,8 @@
 // relámpagos y, por último, gotas en el cristal cuando llueve.
 
 import { ESTRELLAS } from './estrellas.js';
-import { pintarPaisaje, pintarBokeh } from './paisaje.js';
-
-// Altura del horizonte en la pantalla: por debajo queda el paisaje del lugar
-const HOR = 0.5;
+// Altura del horizonte en la pantalla
+const HOR = 0.62;
 
 const RAD = Math.PI / 180;
 // Color de las estrellas según su índice B-V, suavizado como se ve a simple vista
@@ -176,21 +174,6 @@ function texturaLuna() {
 
 function lienzo(w, h) { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; }
 
-// Desenfoque como el de una foto enfocada en el cristal. Si el navegador sabe aplicar filtros al
-// lienzo se usa; si no, se encoge y se vuelve a estirar, que suaviza casi igual
-function desenfocar(c, r) {
-  const g = c.getContext('2d'), copia = lienzo(c.width, c.height);
-  copia.getContext('2d').drawImage(c, 0, 0);
-  g.save(); g.setTransform(1, 0, 0, 1, 0, 0);
-  if (typeof g.filter === 'string') {
-    g.clearRect(0, 0, c.width, c.height); g.filter = `blur(${r}px)`; g.drawImage(copia, 0, 0); g.filter = 'none';
-  } else {
-    const f = Math.max(2, Math.round(r / 1.5)), p = lienzo(Math.ceil(c.width / f), Math.ceil(c.height / f)), pg = p.getContext('2d');
-    pg.imageSmoothingQuality = 'high'; pg.drawImage(copia, 0, 0, p.width, p.height);
-    g.clearRect(0, 0, c.width, c.height); g.imageSmoothingQuality = 'high'; g.drawImage(p, 0, 0, c.width, c.height);
-  }
-  g.restore();
-}
 
 // Colorea una textura: sombra de fondo, luz según el tono y, al final, la forma de la nube
 let temporal = null, coloreada = null;
@@ -968,7 +951,7 @@ export class Cielo {
   }
 
   set(estado) {
-    const clave = () => [this.estado.tipo, Math.round(this.estado.nubes / 10), Math.round(this.fuerza() * 4), this.estado.semilla].join("|");
+    const clave = () => [this.estado.tipo, Math.round(this.estado.nubes / 10), Math.round(this.fuerza() * 4)].join('|');
     const antes = clave(), altAntes = this.sol0 ? this.sol0.alt : null;
     this.estado = { ...this.estado, ...estado };
     this.sol0 = this.astros();
@@ -994,34 +977,6 @@ export class Cielo {
     g.clearRect(0, 0, this.anterior.width, this.anterior.height);
     g.drawImage(this.c, 0, 0);
     this.mezcla = 1;
-  }
-
-  // Paisaje del lugar, pintado aparte y guardado mientras no cambie la luz
-  paisaje() {
-    const e = this.estado, L = this.luz, { w, h } = this;
-    const clave = [w, h, e.semilla, e.escena, !!e.horizonte, e.suelo, e.poblacion, e.mes, !!e.castillo, Math.round(L.dia * 30), Math.round(L.k * 10), L.g,
-      Math.round(L.lunar * 5), this.cristalActivo, L.cielo[1].map((v) => Math.round(v / 6)).join('.')].join('|');
-    const ahora = performance.now();
-    if (clave !== this.clavePaisaje && (!this.lienzoPaisaje || ahora - (this.tPaisaje || 0) > 1500 || !this.lienzoPaisaje.listo)) {
-      this.clavePaisaje = clave; this.tPaisaje = ahora;
-      const dpr = this.dpr || 1;
-      if (!this.lienzoPaisaje || this.lienzoPaisaje.width !== Math.round(w * dpr) || this.lienzoPaisaje.height !== Math.round(h * dpr)) this.lienzoPaisaje = lienzo(Math.round(w * dpr), Math.round(h * dpr));
-      const c = this.lienzoPaisaje, g = c.getContext('2d');
-      g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, c.width, c.height); g.setTransform(dpr, 0, 0, dpr, 0, 0);
-      const grupoE = grupo(e.tipo);
-      const { luces, noche } = pintarPaisaje(g, w, h, (alt, az) => this.proyectarLibre(alt * RAD, az * RAD), L, {
-        desenfocado: true,
-        horizonte: e.horizonte, suelo: e.suelo, poblacion: e.poblacion, mes: e.mes, castillo: e.castillo, semilla: e.semilla, escena: e.escena,
-        lluvia: grupoE === 'lluvia' || grupoE === 'tormenta', nieve: grupoE === 'nieve', niebla: grupoE === 'niebla'
-      });
-      // Siempre algo desenfocado, como cuando se mira por una ventana: se lee la forma y la luz, no
-      // el dibujo. Con lluvia, más, porque la vista se queda en las gotas del cristal
-      const desenfoque = this.cristalActivo ? 10 : 6.5;
-      desenfocar(c, desenfoque * dpr);
-      if (luces.length) pintarBokeh(g, luces, noche, desenfoque / 10);
-      c.listo = true;
-    }
-    this.ctx.drawImage(this.lienzoPaisaje, 0, 0, w, h);
   }
 
   // Todos los colores del momento, según la altura del sol, la luna y lo tapado que esté
@@ -1217,7 +1172,6 @@ export class Cielo {
     this.luna();
     this.sol();
     this.nubes(dt);
-    this.paisaje();
     if (this.bancos.length) this.niebla(dt);
     this.luzVolumetrica();
     if (this.cortinas) this.cortina(dt);
