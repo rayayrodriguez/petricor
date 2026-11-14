@@ -318,37 +318,176 @@ function spriteMicro() {
   return c;
 }
 
+// Gota como mapa de normales para el agua con refracción: rojo y verde dicen hacia dónde se
+// inclina la superficie, azul cuánta agua hay. Algo más plana que media esfera, como en un cristal.
+function spriteNormal(r) {
+  const R = r * ESC_GOTA, t = Math.ceil(R * 2 + 4), c = document.createElement('canvas');
+  c.width = c.height = t;
+  const g = c.getContext('2d'), img = g.createImageData(t, t), px = img.data;
+  for (let y = 0; y < t; y++) for (let x = 0; x < t; x++) {
+    const dx = (x + 0.5 - t / 2) / R, dy = (y + 0.5 - t / 2) / R, d = Math.hypot(dx, dy);
+    const a = Math.max(0, Math.min(1, (1 - d) * R + 0.5));
+    if (a <= 0) continue;
+    const k = Math.min(1, d), nx = d > 0 ? (dx / d) * k : 0, ny = d > 0 ? (dy / d) * k : 0;
+    const i = (y * t + x) * 4;
+    px[i] = 128 + 127 * nx; px[i + 1] = 128 + 127 * ny; px[i + 2] = 255 * Math.pow(Math.max(0, 1 - k * k), 0.6); px[i + 3] = 255 * a;
+  }
+  g.putImageData(img, 0, 0);
+  return c;
+}
+
+// Corte de un reguero en el mapa de normales: de lado a lado la superficie pasa de mirar a la
+// izquierda a mirar a la derecha, y es más gruesa en el centro. Se estira a lo largo y a lo ancho
+function spriteTubo() {
+  // estrecho a propósito: al encogerlo a unos pocos píxeles no se salta los bordes suaves
+  const W = 12, c = document.createElement('canvas');
+  c.width = W; c.height = 2;
+  const g = c.getContext('2d'), img = g.createImageData(W, 2), px = img.data;
+  for (let y = 0; y < 2; y++) for (let i = 0; i < W; i++) {
+    const x = ((i + 0.5) / W) * 2 - 1, k = (y * W + i) * 4;
+    px[k] = 128 + 115 * x; px[k + 1] = 128; px[k + 2] = 150 * Math.sqrt(Math.max(0, 1 - x * x));
+    px[k + 3] = 255 * Math.max(0, Math.min(1, (1 - Math.abs(x)) / 0.2));
+  }
+  g.putImageData(img, 0, 0);
+  return c;
+}
+
+// El agua del cristal pintada con WebGL: cada gota y cada reguero hacen de lente sobre lo que hay
+// detrás (el cielo, las nubes, la lluvia), que se ve desviado y del revés, con el borde oscuro
+// donde el agua es fina y un brillo donde refleja la claridad.
+const VERT = 'attribute vec2 p; varying vec2 uv; void main() { uv = p * 0.5 + 0.5; gl_Position = vec4(p, 0.0, 1.0); }';
+const FRAG = `precision mediump float;
+uniform sampler2D fondo; uniform sampler2D agua; uniform vec2 tam; uniform float luz;
+varying vec2 uv;
+void main() {
+  vec4 a = texture2D(agua, uv);
+  float cob = smoothstep(0.25, 0.6, a.a);
+  if (cob <= 0.0) { gl_FragColor = vec4(0.0); return; }
+  vec2 n = a.rg * 2.0 - 1.0;
+  float g = a.b;
+  vec2 desv = vec2(-n.x, n.y) * (12.0 + 34.0 * g) / tam;
+  vec3 c = texture2D(fondo, uv + desv).rgb * 1.04 + 0.01;
+  // donde la superficie está más inclinada, en el borde, la luz se dobla tanto que se ve oscuro
+  float borde = smoothstep(0.55, 0.97, length(n));
+  c *= 1.0 - borde * 0.62;
+  vec3 N = normalize(vec3(n.x, n.y, 0.3 + g));
+  float esp = pow(max(dot(N, normalize(vec3(-0.35, -0.6, 1.0))), 0.0), 70.0)
+            + 0.18 * pow(max(dot(N, normalize(vec3(-0.6, -0.1, 1.0))), 0.0), 40.0);
+  float bajo = smoothstep(0.35, 0.9, n.y) * (1.0 - borde) * 0.12;
+  c += esp * (0.5 + 0.5 * luz) + bajo;
+  gl_FragColor = vec4(c * cob, cob);
+}`;
+
+class AguaGL {
+  static crear(lienzo) {
+    try { return new AguaGL(lienzo); } catch (e) { return null; }
+  }
+
+  constructor(lienzo) {
+    const c = this.c = document.createElement('canvas');
+    c.setAttribute('aria-hidden', 'true');
+    c.style.cssText = 'position:fixed;inset:0;z-index:0;pointer-events:none;display:block';
+    const gl = this.gl = c.getContext('webgl', { alpha: true, premultipliedAlpha: true, antialias: false, depth: false, stencil: false });
+    if (!gl) throw new Error('sin WebGL');
+    const sombreador = (tipo, src) => {
+      const s = gl.createShader(tipo); gl.shaderSource(s, src); gl.compileShader(s);
+      if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
+      return s;
+    };
+    const pr = this.pr = gl.createProgram();
+    gl.attachShader(pr, sombreador(gl.VERTEX_SHADER, VERT)); gl.attachShader(pr, sombreador(gl.FRAGMENT_SHADER, FRAG));
+    gl.linkProgram(pr);
+    if (!gl.getProgramParameter(pr, gl.LINK_STATUS)) throw new Error('enlace');
+    gl.useProgram(pr);
+    gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+    const p = gl.getAttribLocation(pr, 'p');
+    gl.enableVertexAttribArray(p); gl.vertexAttribPointer(p, 2, gl.FLOAT, false, 0, 0);
+    this.texturas = [0, 1].map((i) => {
+      const t = gl.createTexture();
+      gl.activeTexture(gl.TEXTURE0 + i); gl.bindTexture(gl.TEXTURE_2D, t);
+      for (const [k, v] of [[gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D, k, v);
+      return t;
+    });
+    gl.uniform1i(gl.getUniformLocation(pr, 'fondo'), 0);
+    gl.uniform1i(gl.getUniformLocation(pr, 'agua'), 1);
+    this.uTam = gl.getUniformLocation(pr, 'tam'); this.uLuz = gl.getUniformLocation(pr, 'luz');
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+    this.fondo = document.createElement('canvas');
+    this.f = this.fondo.getContext('2d');
+    this.perdido = false; this.limpio = true;
+    c.addEventListener('webglcontextlost', (e) => { e.preventDefault(); this.perdido = true; c.style.display = 'none'; });
+    lienzo.after(c);
+  }
+
+  medir(w, h, dpr) {
+    this.w = w; this.h = h;
+    this.c.width = Math.round(w * dpr); this.c.height = Math.round(h * dpr);
+    this.c.style.width = w + 'px'; this.c.style.height = h + 'px';
+    // lo de detrás se ve borroso a través del agua: basta con media resolución
+    this.fondo.width = Math.max(1, Math.round(w / 2)); this.fondo.height = Math.max(1, Math.round(h / 2));
+    this.gl.viewport(0, 0, this.c.width, this.c.height);
+  }
+
+  pintar(cielo, agua, luz) {
+    if (this.perdido) return;
+    const gl = this.gl;
+    this.f.drawImage(cielo, 0, 0, this.fondo.width, this.fondo.height);
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.texturas[0]);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, this.fondo);
+    gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, this.texturas[1]);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, agua);
+    gl.uniform2f(this.uTam, this.w, this.h); gl.uniform1f(this.uLuz, luz);
+    gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    this.limpio = false;
+  }
+
+  limpiar() {
+    if (this.limpio || this.perdido) return;
+    this.gl.clearColor(0, 0, 0, 0); this.gl.clear(this.gl.COLOR_BUFFER_BIT);
+    this.limpio = true;
+  }
+}
+
 // ── Gotas en el cristal ──
 // Las gotas que golpean el cristal se quedan pegadas. Si una cae sobre otra, se juntan y crecen.
 // Cuando una pesa lo bastante vence el agarre y resbala a tirones: se traga las que encuentra,
 // limpia a su paso la neblina de microgotas y arrastra detrás una película de agua corta que en
 // menos de medio segundo se rompe en gotitas: lo que queda es un surco limpio salpicado de gotas
 // diminutas, no una raya. Las que bajan después tienden a seguir el camino ya mojado.
-const MOJ = 5; // tamaño de celda del mapa de humedad, px
+const MOJ = 3; // tamaño de celda del mapa de humedad, px
 const CELDA = 20, MAX_GOTAS = 650, R_RESBALA = 5.8;
 
 class Cristal {
   constructor() {
     this.gotas = []; this.w = 0; this.h = 0; this.secar = 0; this.juntar = 0; this.reloj = 0; this.lleno = false;
     this.sprites = [2, 4, 7, 11, 16].map((r) => ({ r, img: spriteGota(r) }));
+    this.spritesN = [2, 4, 7, 11, 16].map((r) => ({ r, img: spriteNormal(r) }));
     this.spriteMicro = spriteMicro();
+    this.tubo = spriteTubo();
+    this.gl = false; // con WebGL las gotas y los regueros se pintan con refracción
   }
 
   medir(w, h, dpr) {
     if (this.micro && this.w === w && this.h === h) return;
-    this.w = w; this.h = h;
+    this.w = w; this.h = h; this.dpr = dpr;
     this.micro = document.createElement('canvas');
     this.micro.width = Math.round(w * dpr); this.micro.height = Math.round(h * dpr);
     this.m = this.micro.getContext('2d');
     this.m.setTransform(dpr, 0, 0, dpr, 0, 0);
     this.cols = Math.ceil(w / MOJ) + 1; this.filas = Math.ceil(h / MOJ) + 1;
     this.mojado = new Float32Array(this.cols * this.filas);
+    // Mapas de agua para WebGL: los regueros, que duran, y el de cada fotograma con todo
+    const capa = () => { const c = document.createElement('canvas'); c.width = this.micro.width; c.height = this.micro.height; const g = c.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0); return [c, g]; };
+    [this.regueros, this.rg] = capa();
+    [this.agua, this.ag] = capa();
     this.vaciar();
   }
 
   vaciar() {
     this.gotas = []; this.lleno = false; this.reloj = 0;
-    if (this.m) { this.m.clearRect(0, 0, this.w, this.h); this.mojado.fill(0); }
+    if (this.m) { this.m.clearRect(0, 0, this.w, this.h); this.rg.clearRect(0, 0, this.w, this.h); this.mojado.fill(0); }
   }
 
   // Lo mojado que sigue el cristal en una celda: 1 recién pasada una gota, 0 seco
@@ -357,11 +496,12 @@ class Cristal {
     return Math.max(0, Math.min(1, (this.mojado[f * this.cols + c] - this.reloj) / 20));
   }
 
+  // Marca el paso de una gota: más mojado en el centro del reguero que en los lados
   mojar(x, y, r) {
-    const f = Math.floor(y / MOJ);
+    const f = Math.floor(y / MOJ), c0 = Math.floor(x / MOJ);
     if (f < 0 || f >= this.filas) return;
-    for (let c = Math.floor((x - r * 0.6) / MOJ); c <= Math.floor((x + r * 0.6) / MOJ); c++) {
-      if (c >= 0 && c < this.cols) this.mojado[f * this.cols + c] = this.reloj + 20;
+    for (let c = Math.floor((x - r * 0.5) / MOJ); c <= Math.floor((x + r * 0.5) / MOJ); c++) {
+      if (c >= 0 && c < this.cols) this.mojado[f * this.cols + c] = Math.max(this.mojado[f * this.cols + c], this.reloj + (c === c0 ? 20 : 16));
     }
   }
 
@@ -377,8 +517,8 @@ class Cristal {
 
   sprite(r) { return this.sprites.find((p) => p.r >= r) || this.sprites[this.sprites.length - 1]; }
 
-  dibujar(ctx, x, y, r, sx, sy, a) {
-    const s = this.sprite(r), t = (s.img.width / ESC_GOTA) * (r / s.r);
+  dibujar(ctx, x, y, r, sx, sy, a, lista = this.sprites) {
+    const s = lista.find((p) => p.r >= r) || lista[lista.length - 1], t = (s.img.width / ESC_GOTA) * (r / s.r);
     ctx.globalAlpha = a;
     ctx.drawImage(s.img, x - (t * sx) / 2, y - (t * sy) / 2, t * sx, t * sy);
   }
@@ -417,7 +557,7 @@ class Cristal {
   }
 
   nueva(x, y, r, agarre = azar(0.8, 1.45)) {
-    return { x, y, r, vy: 0, mueve: false, agarre, pausa: 0, rastro: 0, deriva: azar(-0.5, 0.5), viva: true, temblor: 0, eje: 0, sx: azar(0.93, 1.07), crece: azar(0.2, 1.8), hist: [], tramo: 0, sig: azar(2, 5.5) };
+    return { x, y, r, vy: 0, mueve: false, agarre, pausa: 0, rastro: 0, deriva: azar(-0.5, 0.5), viva: true, temblor: 0, eje: 0, sx: azar(0.93, 1.07), crece: azar(0.2, 1.8), hist: [], tramo: 0, sig: azar(2, 5.5), fase: Math.random() * 6.28 };
   }
 
   caer(x, y, r) {
@@ -473,6 +613,12 @@ class Cristal {
       m.globalAlpha = 1; m.globalCompositeOperation = 'destination-out';
       m.fillStyle = 'rgba(0,0,0,0.07)'; m.fillRect(0, 0, this.w, this.h);
       m.globalCompositeOperation = 'source-over';
+      // los regueros también se van secando
+      if (this.gl) {
+        this.rg.globalAlpha = 1; this.rg.globalCompositeOperation = 'destination-out';
+        this.rg.fillStyle = 'rgba(0,0,0,0.12)'; this.rg.fillRect(0, 0, this.w, this.h);
+        this.rg.globalCompositeOperation = 'source-over';
+      }
     }
     // Las gotas quietas engordan con la neblina y, al crecer, se tocan y se juntan
     this.juntar += dt;
@@ -487,7 +633,7 @@ class Cristal {
         if (revisar) this.fusionar(d);
         if (!d.viva) continue;
         if (d.r <= R_RESBALA * d.agarre) continue;
-        d.mueve = true; d.pausa = azar(0, 0.3);
+        d.mueve = true; d.pausa = azar(0, 0.3); d.ry = null;
       }
       this.resbalar(d, dt);
     }
@@ -509,20 +655,40 @@ class Cristal {
     }
     // serpentea, y si tiene un reguero al lado se va hacia él
     let lado = 0, mejor = pista;
-    for (const k of [-3, -2, -1, 1, 2, 3]) { const v = this.humedad(c + k, fila); if (v > mejor + 0.1) { mejor = v; lado = k; } }
-    d.deriva += (lado ? Math.sign(lado) * 6 : azar(-1, 1) * 1.6) * dt;
-    d.deriva = Math.max(-1, Math.min(1, d.deriva * (pista > 0.3 && !lado ? Math.exp(-dt * 4) : 1)));
+    for (const k of [-4, -3, -2, -1, 1, 2, 3, 4]) { const v = this.humedad(c + k, fila); if (v > mejor + 0.05) { mejor = v; lado = k; } }
+    d.deriva += (lado ? 0 : azar(-1, 1) * 1.6) * dt;
+    d.deriva = Math.max(-1, Math.min(1, d.deriva * (pista > 0.3 ? Math.exp(-dt * 4) : 1)));
     const dy = d.vy * dt;
-    d.y += dy; d.x = Math.max(0, Math.min(this.w, d.x + d.deriva * dy * 0.16));
+    // si tiene un reguero al lado se mete en él, y dentro va por el centro
+    const tirar = lado ? Math.sign(lado) * Math.min(Math.abs(lado) * MOJ, dy * 0.25 + 6 * dt) : 0;
+    d.y += dy; d.x = Math.max(0, Math.min(this.w, d.x + d.deriva * dy * 0.16 + tirar));
     if (dy > 0.05) {
       // limpia la neblina por donde pasa
       m.globalAlpha = 1; m.globalCompositeOperation = 'destination-out'; m.fillStyle = '#000';
       m.beginPath(); m.ellipse(d.x, d.y - d.r * 0.3, d.r * 0.95, d.r * 1.3, 0, 0, Math.PI * 2); m.fill();
       m.globalCompositeOperation = 'source-over';
       this.mojar(d.x, d.y, d.r);
-      // apunta por dónde va pasando: ahí queda la película de agua
-      const u = d.hist[d.hist.length - 1];
-      if (!u || Math.abs(d.y - u.y) + Math.abs(d.x - u.x) >= 1) d.hist.push({ x: d.x, y: d.y, t: this.reloj });
+      if (this.gl) {
+        // deja un reguero: un canal de agua de ancho irregular que se queda pegado al cristal
+        const hw = d.hw = d.r * 0.5 * (0.8 + 0.22 * Math.sin(d.y * 0.11 + d.fase) + 0.12 * Math.sin(d.y * 0.37 + d.fase * 2));
+        this.reguero(d, d.x, d.y - d.r * 0.5, hw);
+        // el agua que se queda en el reguero sale de la gota; por un reguero ya hecho gasta menos
+        d.r = Math.sqrt(Math.max(0.01, d.r * d.r - dy * hw * 0.015 * (1 - 0.7 * pista)));
+        d.rastro += dy;
+        if (d.rastro > d.sig * 5) {
+          d.rastro = 0; d.sig = azar(2, 6);
+          if (Math.random() < 0.5 && this.gotas.length < MAX_GOTAS + 150) {
+            const rb = azar(0.6, 1.3), t = this.nueva(d.x + azar(-1, 1) * hw * 1.6, d.y - d.r * azar(2, 4), rb);
+            t.crece = azar(0.1, 0.4);
+            this.gotas.push(t); this.meter(t);
+            d.r = Math.sqrt(Math.max(0.01, d.r * d.r - rb * rb));
+          }
+        }
+      } else {
+        // apunta por dónde va pasando: ahí queda la película de agua
+        const u = d.hist[d.hist.length - 1];
+        if (!u || Math.abs(d.y - u.y) + Math.abs(d.x - u.x) >= 1) d.hist.push({ x: d.x, y: d.y, t: this.reloj });
+      }
     }
     // se traga las que encuentra delante; si al juntarse da un salto, la película de detrás se rompe ya
     const o = this.tocando(d.x, d.y, d.r, d, true);
@@ -534,6 +700,51 @@ class Cristal {
     // sin agua suficiente se queda parada
     if (d.r < R_RESBALA * d.agarre * 0.8) { d.mueve = false; d.vy = 0; }
     if (d.y - d.r * 2 > this.h) d.viva = false;
+  }
+
+  // Tramo de reguero desde donde se quedó el anterior. Los extremos van a píxel entero para que
+  // los tramos encajen sin solaparse ni dejar costuras
+  reguero(d, x1, y1, hw) {
+    const dpr = this.dpr, Y1 = Math.round(y1 * dpr) / dpr;
+    if (d.ry == null || Y1 < d.ry || Y1 - d.ry > 40 || Math.abs(x1 - d.rx) > hw * 2) { d.ry = Y1; d.rx = x1; return; }
+    if (Y1 - d.ry < 1 / dpr) return;
+    const g = this.rg, pend = (x1 - d.rx) / (Y1 - d.ry);
+    g.save();
+    g.transform(1, 0, pend, 1, -pend * d.ry, 0);
+    g.globalAlpha = 1;
+    g.drawImage(this.tubo, d.rx - hw, d.ry, hw * 2, Y1 - d.ry);
+    g.restore();
+    d.ry = Y1; d.rx = x1;
+  }
+
+  // Cuello de la gota que resbala: se estrecha hacia arriba hasta el ancho de su reguero
+  cuello(g, d) {
+    const L = d.r * (1.7 + Math.min(1.5, d.vy / 90)), hw = d.hw || d.r * 0.4, paso = 1 / this.dpr;
+    g.globalAlpha = 1;
+    for (let k = d.r * 0.3; k < L; k += paso) {
+      const t = k / L, w = hw + (d.r * 0.9 - hw) * Math.pow(1 - t, 1.6);
+      g.drawImage(this.tubo, d.x - d.deriva * k * 0.16 - w, d.y - k - paso, w * 2, paso * 1.02);
+    }
+  }
+
+  // Mapa de agua de este fotograma: regueros y, encima, las gotas; la que resbala lleva un cuello
+  // de gotitas cada vez más finas que la une con su reguero
+  mapa() {
+    const g = this.ag;
+    g.globalAlpha = 1;
+    g.clearRect(0, 0, this.w, this.h);
+    g.drawImage(this.regueros, 0, 0, this.w, this.h);
+    for (const d of this.gotas) {
+      if (d.mueve && d.vy > 4) {
+        this.cuello(g, d);
+        this.dibujar(g, d.x, d.y, d.r, 0.95, 1.1 + Math.min(1, d.vy / 150) * 0.12, 1, this.spritesN);
+      } else if (d.temblor > 0.03) {
+        const c = Math.abs(Math.cos(d.eje)), s = Math.abs(Math.sin(d.eje));
+        this.dibujar(g, d.x, d.y, d.r, 1 + d.temblor * 0.3 * c, 1 + d.temblor * 0.3 * s, 1, this.spritesN);
+      } else this.dibujar(g, d.x, d.y, d.r, d.sx, 1 / d.sx, 1, this.spritesN);
+    }
+    g.globalAlpha = 1;
+    return this.agua;
   }
 
   // Lo que dura la película detrás de la gota antes de romperse: más en las gordas
@@ -613,6 +824,8 @@ class Cristal {
     if (!this.micro) return;
     ctx.globalAlpha = alfa;
     ctx.drawImage(this.micro, 0, 0, this.w, this.h);
+    // con WebGL las gotas y los regueros se pintan aparte, con refracción
+    if (this.gl) { ctx.globalAlpha = 1; return; }
     for (const d of this.gotas) if (d.hist.length > 1) this.pelicula(ctx, d, alfa);
     for (const d of this.gotas) {
       if (d.mueve && d.vy > 4) {
@@ -657,6 +870,8 @@ export class Cielo {
     this.estrella = null; this.proxEstrella = azar(6, 14);
     this.salpicaduras = [];
     this.vidrio = new Cristal();
+    this.agua = AguaGL.crear(canvas);
+    this.vidrio.gl = !!this.agua;
     this.cache = new Map();
     this.rayosA = texturaRayos(14, 3); this.rayosB = texturaRayos(9, 11);
     this.cortinaTex = texturaCortina(5);
@@ -680,6 +895,7 @@ export class Cielo {
     this.c.style.width = this.w + 'px'; this.c.style.height = this.h + 'px';
     this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     this.vidrio.medir(this.w, this.h, dpr);
+    if (this.agua) this.agua.medir(this.w, this.h, dpr);
     if (this.iniciado) { this.preparar(); this.iluminar(); }
     if (this.reducido) this.dibujar(0);
   }
@@ -927,6 +1143,13 @@ export class Cielo {
       ctx.drawImage(this.anterior, 0, 0);
       ctx.restore();
       this.mezcla = Math.max(0, this.mezcla - dt / 1.8);
+    }
+
+    // El agua del cristal, con refracción, encima de todo lo anterior
+    if (this.agua) {
+      this.vidrio.gl = !this.agua.perdido;
+      if (this.cristalActivo && this.vidrio.lleno && this.vidrio.gl) this.agua.pintar(this.c, this.vidrio.mapa(), this.luz.cristal);
+      else this.agua.limpiar();
     }
   }
 
