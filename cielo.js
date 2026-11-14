@@ -594,6 +594,34 @@ class Cristal {
     this.lleno = true;
   }
 
+  // Casi nadie se queda mirando la app más de unos segundos, así que al abrirla el cristal tiene
+  // que llevar ya un buen rato bajo la lluvia: se adelanta la simulación a pasos largos sin pintar
+  // (regueros hechos, unos frescos y otros secándose) y se dejan unas gotas gordas arriba a punto
+  // de soltarse, para que nada más entrar se vea alguna escurrirse
+  calentar(fina, f, segundos = 45) {
+    const t0 = performance.now(), dt = 0.15;
+    if (!this.lleno) this.poblar(fina, f);
+    let soltadas = false;
+    for (let t = 0; t < segundos && performance.now() - t0 < 220; t += dt) {
+      // a mitad de camino se sueltan unas cuantas para que haya regueros hechos también con llovizna
+      if (!soltadas && t > segundos * 0.5) { this.soltar(fina ? 2 : 3, 0); soltadas = true; }
+      this.paso(dt, fina, f);
+    }
+    this.soltar(fina ? 2 : 4, 0.3);
+    this.indexar();
+  }
+
+  // Engorda las gotas más grandes de la mitad de arriba lo justo para que se suelten, una tras otra
+  soltar(n, espera) {
+    const quietas = this.gotas.filter((d) => !d.mueve && d.y > this.h * 0.04 && d.y < this.h * 0.5 && d.r > 2.2)
+      .sort((a, b) => b.r - a.r).slice(0, n);
+    quietas.forEach((d, i) => {
+      d.r = Math.max(d.r, R_RESBALA * d.agarre * azar(1.05, 1.3));
+      d.mueve = true; d.vy = 0; d.rx = null; d.extra = null;
+      d.pausa = espera + i * azar(0.5, 1.2);
+    });
+  }
+
   paso(dt, fina, f) {
     const R = this.ritmo(fina, f), m = this.m;
     if (!this.lleno) this.poblar(fina, f);
@@ -1541,8 +1569,8 @@ export class Cielo {
 
   gotasCristal(dt) {
     const fina = this.estado.tipo === 'llovizna', f = this.fuerza();
-    if (this.reducido) { if (!this.vidrio.lleno) this.vidrio.poblar(fina, f); }
-    else this.vidrio.paso(dt, fina, f);
+    if (!this.vidrio.lleno) this.vidrio.calentar(fina, f);
+    if (!this.reducido) this.vidrio.paso(dt, fina, f);
     this.vidrio.pintar(this.ctx, this.luz.cristal);
   }
 
