@@ -249,6 +249,24 @@ function rnd(seed) {
 }
 const azar = (a, b) => a + Math.random() * (b - a);
 
+// Trazo de una gota en movimiento: bordes suaves, cola que se desvanece y cabeza más brillante
+function spriteRaya(rgb) {
+  const c = document.createElement('canvas');
+  c.width = 6; c.height = 96;
+  const g = c.getContext('2d');
+  const largo = g.createLinearGradient(0, 0, 0, 96);
+  largo.addColorStop(0, `rgba(${rgb},0)`);
+  largo.addColorStop(0.5, `rgba(${rgb},0.4)`);
+  largo.addColorStop(0.9, `rgba(${rgb},1)`);
+  largo.addColorStop(1, `rgba(${rgb},0.35)`);
+  g.fillStyle = largo; g.fillRect(0, 0, 6, 96);
+  g.globalCompositeOperation = 'destination-in';
+  const ancho = g.createLinearGradient(0, 0, 6, 0);
+  ancho.addColorStop(0, 'rgba(0,0,0,0)'); ancho.addColorStop(0.5, 'rgba(0,0,0,1)'); ancho.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = ancho; g.fillRect(0, 0, 6, 96);
+  return c;
+}
+
 // Sprite de una gota en el cristal: borde oscuro, centro que refleja el cielo y un brillo arriba.
 function spriteGota(r) {
   const c = document.createElement('canvas');
@@ -318,6 +336,7 @@ export class Cielo {
 
   redimensionar() {
     const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+    this.dpr = dpr;
     this.w = window.innerWidth; this.h = window.innerHeight;
     this.c.width = Math.round(this.w * dpr); this.c.height = Math.round(this.h * dpr);
     this.c.style.width = this.w + 'px'; this.c.style.height = this.h + 'px';
@@ -475,18 +494,29 @@ export class Cielo {
     ];
     this.capasNubes.forEach((c, i) => { c.x = (i * 0.37 + (this.t * 0.001)) % 1; });
 
-    // Lluvia en tres profundidades
+    // Lluvia por profundidades: lejos fina, lenta y tenue; cerca gruesa, rápida y más visible.
+    // El largo de cada trazo sale de su velocidad, como el desenfoque de una foto a 1/30 s:
+    // así se lee como agua que cae y no como rayitas que se desplazan.
     const lluvia = g === 'lluvia' || g === 'tormenta';
     const fina = e.tipo === 'llovizna';
-    const base = lluvia ? Math.round(fina ? 380 : 140 + Math.pow(f, 1.2) * 1100) : 0;
+    const base = lluvia ? Math.round(fina ? 480 : 170 + Math.pow(f, 1.2) * 820) : 0;
     this.cortinas = lluvia && f >= 0.6;
+    const k = h / 850; // velocidades pensadas para la altura de un móvil
     const capas = fina
-      ? [{ p: 1, largo: [6, 11], vel: [280, 380], ancho: 1, alfa: 0.42 }]
-      : [{ p: 0.46, largo: [11, 18], vel: [520, 680], ancho: 0.9, alfa: 0.24 },
-         { p: 0.34, largo: [20, 30], vel: [780, 980], ancho: 1.35, alfa: 0.38 },
-         { p: 0.2, largo: [32, 50], vel: [1100, 1400], ancho: 2, alfa: 0.55 }];
-    this.capas = capas.map((c, i) => ({ ...c, cerca: i === capas.length - 1 && !fina,
-      gotas: Array.from({ length: Math.round(base * c.p) }, () => ({ x: Math.random() * (w + 200) - 100, y: Math.random() * h, l: azar(...c.largo), v: azar(...c.vel), s: h * azar(0.82, 1) })) }));
+      ? [{ p: 0.55, vel: [620, 860], exp: 1 / 32, ancho: 1.5, alfa: 0.22 },
+         { p: 0.33, vel: [860, 1150], exp: 1 / 30, ancho: 2, alfa: 0.28 },
+         { p: 0.12, vel: [1150, 1450], exp: 1 / 28, ancho: 2.6, alfa: 0.34 }]
+      : [{ p: 0.5, vel: [950, 1250], exp: 1 / 30, ancho: 1.7, alfa: 0.26 },
+         { p: 0.32, vel: [1350, 1750], exp: 1 / 28, ancho: 2.5, alfa: 0.36 },
+         { p: 0.155, vel: [1850, 2350], exp: 1 / 26, ancho: 3.6, alfa: 0.46 },
+         // unas pocas gotas pegadas a la cámara, desenfocadas
+         { p: 0.025, vel: [2600, 3300], exp: 1 / 24, ancho: 11, alfa: 0.07 }];
+    const [x0, x1] = this.entradaLluvia(Math.max(-0.85, Math.min(0.85, (this.inclinacion() || 0) * (fina ? 1.5 : 1))));
+    this.capas = capas.map((c, i) => ({ ...c, cerca: i === 2 && !fina,
+      gotas: Array.from({ length: Math.round(base * c.p) }, () => {
+        const v = azar(...c.vel) * k;
+        return { x: azar(x0, x1), y: Math.random() * (h + 100), v, l: v * c.exp * azar(0.8, 1.2), a: azar(0.5, 1), f: Math.random() * 6.28, s: h * azar(0.82, 1) };
+      }) }));
 
     // Nieve en tres profundidades
     this.copos = e.tipo === 'nieve'
@@ -518,7 +548,9 @@ export class Cielo {
 
   bucle(ahora) {
     const dt = Math.min((ahora - this.ultimo) / 1000, 0.1);
-    if (dt >= 1 / 40) { this.ultimo = ahora; this.t += dt; this.dibujar(dt); }
+    // Con lluvia o nieve se pinta cada fotograma para que la caída sea fluida; si no, basta con menos
+    const cae = (this.capas.length && this.capas[0].gotas.length) || this.copos.length;
+    if (dt >= (cae ? 1 / 75 : 1 / 40)) { this.ultimo = ahora; this.t += dt; this.dibujar(dt); }
     this.rafId = requestAnimationFrame(this.bucle);
   }
 
@@ -800,30 +832,42 @@ export class Cielo {
     ctx.restore();
   }
 
+  // Hueco por el que entran las gotas: con viento, más hacia barlovento para que no quede un triángulo vacío
+  entradaLluvia(inc) {
+    const { w, h } = this;
+    return [Math.min(0, -inc * h) - 40, Math.max(w, w - inc * h) + 40];
+  }
+
+  raya(tono) {
+    if (!this.rayaCache || this.rayaCache.tono !== tono) this.rayaCache = { tono, img: spriteRaya(tono) };
+    return this.rayaCache.img;
+  }
+
   lluvia(dt) {
-    const { ctx, w, h } = this, e = this.estado, g = grupo(e.tipo);
-    const inc = this.inclinacion();
+    const { ctx, h } = this, e = this.estado, g = grupo(e.tipo);
+    const fina = e.tipo === 'llovizna';
+    // Las gotas pequeñas caen más despacio, así que el mismo viento las tumba más
+    const inc = Math.max(-0.85, Math.min(0.85, (this.inclinacion() || 0) * (fina ? 1.5 : 1)));
     const tono = (g === 'tormenta' ? mezclar(this.luz.lluvia, [150, 170, 210], 0.15) : this.luz.lluvia).map(Math.round).join(',');
-    ctx.lineCap = 'round';
+    const raya = this.raya(tono);
+    const [x0, x1] = this.entradaLluvia(inc);
+    const dpr = this.dpr || 1;
+    // Cizalla en vez de girar cada gota: todas comparten la inclinación del viento
+    ctx.setTransform(dpr, 0, inc * dpr, dpr, 0, 0);
     for (const c of this.capas) {
-      // Cola tenue y cabeza más brillante: da sensación de velocidad
-      ctx.lineWidth = c.ancho;
-      ctx.strokeStyle = `rgba(${tono},${c.alfa * 0.55})`;
-      ctx.beginPath();
       for (const d of c.gotas) {
         d.y += d.v * dt; d.x += d.v * inc * dt;
-        if (d.y > h + d.l || (c.cerca && d.y > d.s)) {
-          if (c.cerca && d.y > d.s && this.salpicaduras.length < 70) this.salpicar(d.x, Math.min(d.y, h - 4));
-          d.y = -d.l - Math.random() * 60; d.x = Math.random() * (w + 200) - 100;
+        if (fina) d.x += Math.sin(this.t * 1.3 + d.f) * 20 * dt; // la llovizna remolinea
+        if (d.y - d.l > h || (c.cerca && d.y > d.s)) {
+          if (c.cerca && d.y > d.s && this.salpicaduras.length < 60) this.salpicar(d.x, Math.min(d.y, h - 4));
+          d.y = -azar(0, 90); d.x = azar(x0, x1);
         }
-        ctx.moveTo(d.x - d.l * inc, d.y - d.l); ctx.lineTo(d.x - d.l * inc * 0.4, d.y - d.l * 0.4);
+        ctx.globalAlpha = c.alfa * d.a;
+        ctx.drawImage(raya, d.x - inc * d.y - c.ancho / 2, d.y - d.l, c.ancho, d.l);
       }
-      ctx.stroke();
-      ctx.strokeStyle = `rgba(${tono},${c.alfa})`;
-      ctx.beginPath();
-      for (const d of c.gotas) { ctx.moveTo(d.x - d.l * inc * 0.4, d.y - d.l * 0.4); ctx.lineTo(d.x, d.y); }
-      ctx.stroke();
     }
+    ctx.globalAlpha = 1;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     // Salpicaduras: anillo que se abre y gotitas que rebotan
     for (let i = this.salpicaduras.length - 1; i >= 0; i--) {
       const s = this.salpicaduras[i];
@@ -921,14 +965,16 @@ export class Cielo {
       if (!this.cristal.length) for (let i = 0; i < 26; i++) this.cristal.push({ x: Math.random() * w, y: Math.random() * h, r: azar(1.5, 4), vida: 0, dur: 1e9 });
     } else {
       // Aparecen gotas nuevas en el cristal
-      const ritmo = 4 + f * 30;
+      // La llovizna deja en el cristal gotitas finas que casi nunca llegan a resbalar
+      const fina = this.estado.tipo === 'llovizna';
+      const ritmo = fina ? 9 : 4 + f * 30;
       let nuevas = ritmo * dt;
       while (nuevas > 0) {
-        if (Math.random() < nuevas && this.cristal.length < 150) this.cristal.push({ x: Math.random() * w, y: Math.random() * h, r: azar(1.4, 4.2) * (Math.random() < 0.12 ? 1.7 : 1), vida: 0, dur: azar(6, 14) });
+        if (Math.random() < nuevas && this.cristal.length < 150) this.cristal.push({ x: Math.random() * w, y: Math.random() * h, r: fina ? azar(0.7, 2) : azar(1.4, 4.2) * (Math.random() < 0.12 ? 1.7 : 1), vida: 0, dur: azar(6, 14) });
         nuevas -= 1;
       }
       // De vez en cuando una gota grande resbala dejando rastro
-      if (this.deslizantes.length < 2 + Math.round(f * 4) && Math.random() < dt * (0.3 + f)) {
+      if (this.deslizantes.length < (fina ? 1 : 2 + Math.round(f * 4)) && Math.random() < dt * (fina ? 0.05 : 0.3 + f)) {
         this.deslizantes.push({ x: Math.random() * w, y: azar(-20, h * 0.5), r: azar(3.5, 6.5), v: 0, vmax: azar(60, 180), pausa: azar(0.2, 1), rastro: 0 });
       }
     }
