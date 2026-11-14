@@ -226,11 +226,11 @@ export function pintarPaisaje(g, w, h, proyectar, L, o) {
 }
 
 // Luces de noche vistas a través de un cristal mojado: discos suaves con el borde algo más vivo
-export function pintarBokeh(g, luces, noche) {
+export function pintarBokeh(g, luces, noche, escala = 1) {
   g.save();
   g.globalCompositeOperation = 'lighter';
   for (const [x, y, s, foco, c] of luces) {
-    const r = foco ? s * 1.4 : 3 + s * 2, a = (foco ? 0.32 : 0.24) * noche;
+    const r = (foco ? s * 1.4 : 3 + s * 2) * (0.45 + 0.55 * escala), a = (foco ? 0.32 : 0.24) * noche * (1.3 - 0.3 * escala);
     const gr = g.createRadialGradient(x, y, 0, x, y, r);
     gr.addColorStop(0, rgb(c, a * 0.75)); gr.addColorStop(0.8, rgb(c, a)); gr.addColorStop(0.92, rgb(c, a * 0.6)); gr.addColorStop(1, rgb(c, 0));
     g.fillStyle = gr; g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill();

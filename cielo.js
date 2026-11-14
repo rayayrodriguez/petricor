@@ -996,8 +996,7 @@ export class Cielo {
     this.mezcla = 1;
   }
 
-  // Paisaje del lugar, pintado aparte y guardado mientras no cambie la luz. Con lluvia se desenfoca,
-  // porque la vista se queda en el cristal mojado, como en una foto
+  // Paisaje del lugar, pintado aparte y guardado mientras no cambie la luz
   paisaje() {
     const e = this.estado, L = this.luz, { w, h } = this;
     const clave = [w, h, e.semilla, !!e.horizonte, e.suelo, e.poblacion, e.mes, !!e.castillo, Math.round(L.dia * 30), Math.round(L.k * 10), L.g,
@@ -1011,11 +1010,15 @@ export class Cielo {
       g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, c.width, c.height); g.setTransform(dpr, 0, 0, dpr, 0, 0);
       const grupoE = grupo(e.tipo);
       const { luces, noche } = pintarPaisaje(g, w, h, (alt, az) => this.proyectarLibre(alt * RAD, az * RAD), L, {
-        desenfocado: this.cristalActivo,
+        desenfocado: true,
         horizonte: e.horizonte, suelo: e.suelo, poblacion: e.poblacion, mes: e.mes, castillo: e.castillo, semilla: e.semilla,
         lluvia: grupoE === 'lluvia' || grupoE === 'tormenta', nieve: grupoE === 'nieve', niebla: grupoE === 'niebla'
       });
-      if (this.cristalActivo) { desenfocar(c, 6 * dpr); if (luces.length) pintarBokeh(g, luces, noche); }
+      // Siempre algo desenfocado, como cuando se mira por una ventana: se lee la forma y la luz, no
+      // el dibujo. Con lluvia, más, porque la vista se queda en las gotas del cristal
+      const desenfoque = this.cristalActivo ? 7 : 3.2;
+      desenfocar(c, desenfoque * dpr);
+      if (luces.length) pintarBokeh(g, luces, noche, desenfoque / 7);
       c.listo = true;
     }
     this.ctx.drawImage(this.lienzoPaisaje, 0, 0, w, h);
