@@ -2,6 +2,7 @@ import { ZONAS, PROVINCIAS, ALIAS_PROVINCIA } from './zonas.js';
 import { frase, TONOS } from './frases.js';
 import { Cielo } from './cielo.js';
 import { Sonido } from './sonido.js';
+import { compartirTiempo } from './compartir.js';
 import { icono, tipoCodigo, textoCodigo, gota, flecha } from './iconos.js';
 import { alturaSol, solDia, faseLuna, posicionSol, posicionLuna, planetas, tiempoSidereo } from './astro.js';
 import { MODELOS, ESTACION, CORRECCIONES_INICIALES, media, max, min, sum, clamp, distanciaKm, fmt, partes, json,
@@ -505,6 +506,8 @@ function pintarPrecision(mod, lugar) {
   const c = correcciones, cont = $('#precision-cuerpo');
   const mt = NOMBRES[mod.mt] || mod.mt, ml = NOMBRES[mod.ml] || mod.ml;
   const fecha = c.actualizado ? new Date(c.actualizado).toLocaleDateString('es-ES', { day: 'numeric', month: 'long' }) : null;
+  const cifra = $('#precision-cifra');
+  cifra.className = 'cifra texto'; cifra.textContent = mod.usarCorr ? `${mt}, corregido` : mt;
   let html = '';
   if (mod.usarCorr) {
     const ct = c.temperatura?.correccion || {}, cc = c.consenso?.correccion || {};
@@ -536,14 +539,23 @@ function pintarAciertos() {
   const cont = $('#aciertos-cuerpo');
   const a = aciertos;
   const guardado = '<p class="texto-suave">El historial se guarda en tu repositorio de GitHub, no en el móvil: aunque borres la app, no se pierde.</p>';
+  const cifra = $('#aciertos-cifra');
+  // Cada día se comprueba a la mañana siguiente: hace falta la máxima y la mínima completas
+  const cuando = '<p class="texto-suave">Cada día se comprueba a la mañana siguiente, hacia las 9, cuando la estación ya ha dado la máxima, la mínima y la lluvia del día entero. Lo de hoy aparecerá mañana.</p>';
   if (!a || !a.dias_comprobados) {
+    cifra.className = 'cifra texto'; cifra.textContent = 'Aún sin datos';
     const desde = a?.empieza ? ` desde el ${fechaCorta(a.empieza)}` : '';
-    cont.innerHTML = `<p>Petricor guarda cada mañana${desde} su previsión para Jaén y, al día siguiente, la compara con lo que midió la estación de AEMET. Los primeros resultados saldrán en un par de días; los porcentajes empiezan a ser fiables con un mes de datos.</p>${guardado}`;
+    cont.innerHTML = `<p>Petricor guarda cada mañana${desde} su previsión para Jaén y, al día siguiente, la compara con lo que midió la estación de AEMET. Los primeros resultados saldrán en un par de días; los porcentajes empiezan a ser fiables con un mes de datos.</p>${cuando}${guardado}`;
     return;
   }
   const p1 = a.por_plazo['1'] || {}, p3 = a.por_plazo['3'] || {};
+  const dias = a.dias_comprobados === 1 ? '1 día' : `${a.dias_comprobados} días`;
+  cifra.className = 'cifra';
+  cifra.innerHTML = p1.dia_completo == null ? `–<small>${dias}</small>` : `${p1.dia_completo} %<small>${dias}</small>`;
   const fila = (nombre, f) => `<tr><td>${nombre}</td><td>${f(p1)}</td><td>${f(p3)}</td></tr>`;
-  let html = `<p>Comprobados <b>${a.dias_comprobados} días</b>, del ${fechaCorta(a.primero)} al ${fechaCorta(a.ultimo)}, con la estación de AEMET en Jaén.</p>`;
+  let html = '';
+  if (p1.dia_completo != null) html += `<p>Para el día siguiente acierta <b>la máxima, la mínima y si llueve, las tres a la vez, el ${p1.dia_completo} % de los días</b>.</p>`;
+  html += `<p>Comprobados <b>${dias}</b>, del ${fechaCorta(a.primero)} al ${fechaCorta(a.ultimo)}, con la estación de AEMET en Jaén.</p>`;
   if (a.dias_comprobados < 30) html += '<p class="texto-suave">Con menos de un mes de datos, los porcentajes todavía bailan bastante.</p>';
   html += `<table class="ranking aciertos"><thead><tr><th>Acierto</th><th>Para mañana</th><th>A 3 días</th></tr></thead><tbody>
     ${fila(`Máxima, ±${n1(a.margen)} °C`, (p) => pct(p.tmax?.aciertos))}
@@ -574,7 +586,7 @@ function pintarAciertos() {
       return `<tr><td>${esc(nombre)}</td><td>${pct(p.tmax?.aciertos)}</td><td>${pct(p.tmin?.aciertos)}</td><td>${pct(p.lluvia?.aciertos)}</td></tr>`;
     }).join('')}</tbody></table>`;
   }
-  html += `<p class="texto-suave">${esc(a.criterio?.lluvia || '')}.</p>${guardado}`;
+  html += `<p class="texto-suave">${esc(a.criterio?.lluvia || '')}.</p>${cuando}${guardado}`;
   html += '<button class="boton-texto" id="btn-historial" type="button">Descargar el historial completo</button>';
   cont.innerHTML = html;
   $('#btn-historial').addEventListener('click', descargarHistorial);
@@ -909,6 +921,26 @@ function pintarSonido() {
 }
 
 $('#btn-ajustes').addEventListener('click', () => { pintarTonos(); pintarSonido(); pintarPush(); abrirHoja('hoja-ajustes'); });
+
+// Mensaje corto que aparece abajo y se va solo
+let temporizadorAviso = null;
+function avisoFlotante(t) {
+  const el = $('#aviso-flotante');
+  el.textContent = t; el.hidden = false;
+  clearTimeout(temporizadorAviso);
+  temporizadorAviso = setTimeout(() => { el.hidden = true; }, 3200);
+}
+
+// Compartir el tiempo de ahora: imagen con el cielo y los datos, y un texto
+$('#btn-compartir').addEventListener('click', async () => {
+  if ($('#temp-ahora').textContent.trim() === '–') { avisoFlotante('Espera a que cargue la previsión'); return; }
+  try {
+    const r = await compartirTiempo(cielo);
+    if (r === 'descargado') avisoFlotante('Imagen guardada y texto copiado');
+  } catch (e) {
+    avisoFlotante('No se ha podido compartir');
+  }
+});
 $('#btn-recargar').addEventListener('click', () => { cerrarHoja($('#hoja-ajustes')); cargar(true); });
 
 // Deslizar entre lugares sobre la cabecera

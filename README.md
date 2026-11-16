@@ -40,3 +40,9 @@ Web personal del tiempo para Jaén y otros lugares. Se instala en el iPhone como
 - Observaciones: estación de AEMET de Jaén (08417), vía Ogimet.
 - Polen y calidad del aire: Copernicus CAMS.
 - Estrellas: catálogo Hipparcos en la versión de d3-celestial (Olaf Frohn, BSD-3). Planetas con los elementos orbitales de Paul Schlyter.
+
+## Luna y compartir
+
+- La luna se pinta con la cara visible real, proyectada del mapa de color del CGI Moon Kit de la NASA (Scientific Visualization Studio, imágenes de la sonda LRO; https://svs.gsfc.nasa.gov/4720). Se ilumina punto a punto con la fase real, el sol en su sitio y el giro que tiene la luna en el cielo a cada hora.
+- El botón de compartir monta una imagen 4:5 con el cielo de ese momento (lluvia y gotas incluidas) y los datos principales, y la pasa al menú de compartir del móvil con un texto. Si el navegador no tiene ese menú, descarga la imagen y copia el texto.
+

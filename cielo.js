@@ -174,6 +174,24 @@ function texturaLuna() {
 
 function lienzo(w, h) { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; }
 
+// La cara visible de la Luna, proyectada del mapa de color de la NASA (Scientific Visualization
+// Studio, CGI Moon Kit, imágenes de la sonda LRO). Gris en el canal de luz y el borde en el alfa
+let albedoLuna = null, pidiendoLuna = false;
+function cargarLuna() {
+  if (albedoLuna || pidiendoLuna) return;
+  pidiendoLuna = true;
+  const img = new Image();
+  img.onload = () => {
+    const c = lienzo(img.width, img.height), g = c.getContext('2d');
+    g.drawImage(img, 0, 0);
+    const d = g.getImageData(0, 0, img.width, img.height).data, N = img.width, a = new Float32Array(N * N), b = new Float32Array(N * N);
+    for (let i = 0; i < N * N; i++) { a[i] = d[i * 4] / 255; b[i] = d[i * 4 + 3] / 255; }
+    albedoLuna = { N, a, b };
+  };
+  img.onerror = () => { pidiendoLuna = false; };
+  img.src = new URL('./luna.png', import.meta.url).href;
+}
+
 
 // Colorea una textura: sombra de fondo, luz según el tono y, al final, la forma de la nube
 let temporal = null, coloreada = null;
@@ -1591,7 +1609,7 @@ export class Cielo {
     // Hacia dónde está el sol visto desde la luna en la pantalla
     const ps = this.proyectarLibre(alt * RAD, az * RAD), creciente = (this.estado.luna ?? 0.5) < 0.5;
     const ang = ps ? Math.atan2(ps[1] - y, ps[0] - x) : (creciente ? 0 : Math.PI);
-    this.dibujarLuna(x, y, Math.min(w, h) * 0.058, this.estado.luna ?? 0.5, alfa, noche, altLuna, ang);
+    this.dibujarLuna(x, y, Math.min(w, h) * 0.1, this.estado.luna ?? 0.5, alfa, noche, altLuna, ang, this.giroLuna(altLuna, azLuna));
   }
 
   proyectarLibre(alt, az) {
@@ -1604,25 +1622,97 @@ export class Cielo {
     return [w / 2 + k * oeste * f, cy - k * (-sur * Math.sin(a0) + arriba * Math.cos(a0)) * f];
   }
 
-  dibujarLuna(x, y, r, fase, alfa, noche, altura, ang) {
+  // Cuánto está girada la luna en el cielo (ángulo paralático): al salir por el este su norte se
+  // inclina a la izquierda y al ponerse por el oeste, a la derecha
+  giroLuna(alt, az) {
+    const f = (this.estado.lat ?? 37.78) * RAD, h = alt * RAD, A = az * RAD;
+    const sd = Math.sin(f) * Math.sin(h) - Math.cos(f) * Math.cos(h) * Math.cos(A), dec = Math.asin(Math.max(-1, Math.min(1, sd)));
+    const H = Math.atan2(Math.sin(A), Math.cos(A) * Math.sin(f) + Math.tan(h) * Math.cos(f));
+    return Math.atan2(Math.sin(H), Math.tan(f) * Math.cos(dec) - Math.sin(dec) * Math.cos(H));
+  }
+
+  // La luna con su superficie real, iluminada punto a punto: el sol le da desde donde está de verdad,
+  // la línea entre luz y sombra es suave, el borde no se oscurece (el suelo lunar devuelve la luz casi
+  // igual mire hacia donde mire) y de noche la parte oscura se adivina por la luz que refleja la Tierra
+  discoLuna(S, fase, ang, giro, noche) {
+    const A = albedoLuna;
+    const clave = [S, Math.round(fase * 500), Math.round(ang * 120), Math.round(giro * 60), Math.round(noche * 10)].join('|');
+    if (this.lunaHecha && this.lunaHecha.clave === clave) return this.lunaHecha.c;
+    const c = (this.lunaHecha && this.lunaHecha.c.width === S) ? this.lunaHecha.c : lienzo(S, S);
+    const g = c.getContext('2d'), img = g.createImageData(S, S), px = img.data;
+    const i = Math.abs(Math.PI - 2 * Math.PI * fase); // ángulo de fase: 0 llena, π nueva
+    const sx = Math.sin(i) * Math.cos(ang), sy = Math.sin(i) * Math.sin(ang), sz = Math.cos(i);
+    const cg = Math.cos(giro), sg = Math.sin(giro), N = A.N;
+    const ceniza = Math.pow(1 - (1 - Math.cos(2 * Math.PI * fase)) / 2, 1.5);
+    for (let py = 0; py < S; py++) for (let qx = 0; qx < S; qx++) {
+      const u = ((qx + 0.5) / S) * 2 - 1, v = ((py + 0.5) / S) * 2 - 1, d2 = u * u + v * v;
+      const k = (py * S + qx) * 4;
+      if (d2 > 1.02) { px[k + 3] = 0; continue; }
+      const z = Math.sqrt(Math.max(0, 1 - d2));
+      // en el mapa, el norte de la luna; en pantalla, girado según la hora
+      const mu = u * cg + v * sg, mv = -u * sg + v * cg;
+      const fx = Math.min(N - 1.001, Math.max(0, ((mu + 1) / 2) * N - 0.5)), fy = Math.min(N - 1.001, Math.max(0, ((mv + 1) / 2) * N - 0.5));
+      const x0 = fx | 0, y0 = fy | 0, ax = fx - x0, ay = fy - y0, j = y0 * N + x0;
+      const al = (A.a[j] * (1 - ax) + A.a[j + 1] * ax) * (1 - ay) + (A.a[j + N] * (1 - ax) + A.a[j + N + 1] * ax) * ay;
+      const borde = Math.max(0, Math.min(1, (1 - Math.sqrt(d2)) * S / 2 + 0.5));
+      const mu0 = u * sx + v * sy + z * sz;
+      const luz = mu0 > 0 ? (2 * mu0) / (mu0 + z + 0.02) : 0;
+      const corte = Math.max(0, Math.min(1, (mu0 + 0.025) / 0.07));
+      const brillo = Math.min(1.25, (0.18 + 0.95 * al) * luz * corte);
+      // la parte en sombra se ve del color del cielo, que está delante; con la luna fina, además,
+      // se adivina gris azulada por la luz que le llega reflejada de la Tierra (luz cenicienta)
+      const tierra = (0.32 + 0.55 * al) * ceniza;
+      const sombraA = noche * (0.12 + 0.5 * ceniza) * (1 - corte);
+      const t = brillo > 0 ? Math.min(1, brillo * 3) : 0;
+      px[k] = Math.min(255, 255 * brillo * t + 150 * tierra * (1 - t));
+      px[k + 1] = Math.min(255, 250 * brillo * t + 164 * tierra * (1 - t));
+      px[k + 2] = Math.min(255, 238 * brillo * t + 196 * tierra * (1 - t));
+      // de noche la parte iluminada es opaca aunque esté en penumbra; de día solo se ve lo que brilla
+      const luzA = corte * (noche + (1 - noche) * Math.min(1, brillo * 1.6));
+      px[k + 3] = 255 * borde * Math.max(luzA, sombraA);
+    }
+    g.putImageData(img, 0, 0);
+    this.lunaHecha = { clave, c };
+    return c;
+  }
+
+  dibujarLuna(x, y, r, fase, alfa, noche, altura, ang, giro = 0) {
     const ctx = this.ctx;
-    if (!this.texLuna) this.texLuna = texturaLuna();
+    cargarLuna();
     ctx.save();
     ctx.globalAlpha = alfa;
-    // Halo de noche
-    const halo = ctx.createRadialGradient(x, y, r * 0.9, x, y, r * 6);
-    halo.addColorStop(0, `rgba(220,228,255,${0.22 * noche * (0.4 + 0.6 * (1 - Math.cos(2 * Math.PI * fase)) / 2)})`); halo.addColorStop(1, 'rgba(220,228,255,0)');
-    ctx.fillStyle = halo; ctx.beginPath(); ctx.arc(x, y, r * 6, 0, Math.PI * 2); ctx.fill();
-    // Parte en sombra: de noche se adivina por la luz que refleja la Tierra
+    // Halo de noche, más grande cuanto más llena
+    const llena = (1 - Math.cos(2 * Math.PI * fase)) / 2;
+    const halo = ctx.createRadialGradient(x, y, r * 0.95, x, y, r * 5);
+    halo.addColorStop(0, `rgba(220,228,255,${0.2 * noche * (0.3 + 0.7 * llena)})`); halo.addColorStop(1, 'rgba(220,228,255,0)');
+    ctx.fillStyle = halo; ctx.beginPath(); ctx.arc(x, y, r * 5, 0, Math.PI * 2); ctx.fill();
+    if (albedoLuna) {
+      const S = Math.min(320, Math.round(r * 2 * (this.dpr || 1)));
+      ctx.drawImage(this.discoLuna(S, fase, ang, giro, noche), x - r, y - r, 2 * r, 2 * r);
+    } else this.lunaSencilla(x, y, r, fase, alfa, noche, ang);
+    // Cerca del horizonte se ve más anaranjada
+    const naranja = 1 - sube(2, 14, altura);
+    if (naranja > 0.02) {
+      ctx.save();
+      ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.clip();
+      ctx.globalCompositeOperation = 'multiply';
+      ctx.fillStyle = rgba(mezclar([255, 255, 255], [255, 190, 130], naranja));
+      ctx.fillRect(x - r, y - r, 2 * r, 2 * r);
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+
+  // Mientras llega la imagen de la NASA, la luna dibujada de antes
+  lunaSencilla(x, y, r, fase, alfa, noche, ang) {
+    const ctx = this.ctx;
+    if (!this.texLuna) this.texLuna = texturaLuna();
     ctx.save();
     ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.clip();
     ctx.globalAlpha = alfa * 0.9 * noche;
     ctx.fillStyle = 'rgb(18,22,36)'; ctx.fillRect(x - r, y - r, 2 * r, 2 * r);
-    ctx.globalAlpha = alfa * 0.13 * noche;
-    ctx.drawImage(this.texLuna, x - r, y - r, 2 * r, 2 * r);
     ctx.restore();
-    // Parte iluminada: medio círculo del lado del sol y la línea de sombra como media elipse
-    const kx = Math.cos(2 * Math.PI * fase); // 1 luna nueva, -1 luna llena
+    const kx = Math.cos(2 * Math.PI * fase);
     ctx.save();
     ctx.translate(x, y); ctx.rotate(ang);
     ctx.beginPath();
@@ -1630,18 +1720,8 @@ export class Cielo {
     ctx.ellipse(0, 0, Math.max(0.001, Math.abs(kx) * r), r, 0, Math.PI / 2, -Math.PI / 2, kx > 0);
     ctx.closePath();
     ctx.restore();
-    ctx.save();
-    ctx.clip();
-    ctx.globalAlpha = alfa;
+    ctx.save(); ctx.clip(); ctx.globalAlpha = alfa;
     ctx.drawImage(this.texLuna, x - r, y - r, 2 * r, 2 * r);
-    // Cerca del horizonte se ve más anaranjada
-    const naranja = 1 - sube(2, 14, altura);
-    if (naranja > 0.02) {
-      ctx.globalCompositeOperation = 'multiply';
-      ctx.fillStyle = rgba(mezclar([255, 255, 255], [255, 196, 140], naranja));
-      ctx.fillRect(x - r, y - r, 2 * r, 2 * r);
-    }
-    ctx.restore();
     ctx.restore();
   }
 

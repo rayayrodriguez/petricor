@@ -1,6 +1,6 @@
 // Service worker de Petricor: funciona sin conexión con la última versión y recibe los avisos.
 const CACHE = 'petricor-v1';
-const BASE = ['./', 'index.html', 'estilos.css', 'app.js', 'cielo.js', 'sonido.js', 'prevision.js', 'estrellas.js', 'frases.js', 'iconos.js', 'astro.js', 'zonas.js',
+const BASE = ['./', 'index.html', 'estilos.css', 'app.js', 'cielo.js', 'sonido.js', 'compartir.js', 'luna.png', 'prevision.js', 'estrellas.js', 'frases.js', 'iconos.js', 'astro.js', 'zonas.js',
   'manifest.webmanifest', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png'];
 
 self.addEventListener('install', (e) => {

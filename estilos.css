@@ -85,6 +85,13 @@ h2, h3 { margin: 0; font-weight: 600; }
 
 /* Barra superior */
 .barra { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-block: 10px 0; }
+.barra-derecha { display: flex; gap: 8px; flex: none; }
+.aviso-flotante {
+  position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 30;
+  padding: 10px 16px; border-radius: 999px; font-size: 14px; color: var(--tinta); background: rgba(20, 26, 40, 0.85);
+  border: 1px solid var(--linea); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); white-space: nowrap;
+  animation: entrar 0.3s ease;
+}
 .boton-icono {
   width: 42px; height: 42px; border-radius: 50%; display: grid; place-items: center;
   background: var(--panel); border: 1px solid var(--linea);
@@ -216,6 +223,18 @@ h2, h3 { margin: 0; font-weight: 600; }
 .ranking td { padding: 6px 0; border-top: 1px solid var(--linea); }
 .ranking tr.elegido td { color: var(--acento); font-weight: 600; }
 #aciertos-cuerpo { padding-inline: 16px; display: grid; gap: 10px; font-size: 14px; }
+/* Secciones que se despliegan: el titular con su cifra y una flecha que gira */
+.plegable { padding-block: 0; }
+.plegable summary { list-style: none; cursor: pointer; margin: 0; padding-block: 14px; align-items: center; -webkit-tap-highlight-color: transparent; user-select: none; }
+.plegable summary::-webkit-details-marker { display: none; }
+.plegable summary::after { content: ''; flex: none; width: 8px; height: 8px; margin: 0 2px 4px 4px; border-right: 2px solid var(--tinta-2); border-bottom: 2px solid var(--tinta-2); transform: rotate(45deg); transition: transform 0.25s ease, margin 0.25s ease; }
+.plegable details[open] summary::after { transform: rotate(-135deg); margin-bottom: -4px; }
+.plegable details > div { padding-bottom: 16px; }
+.plegable details[open] > div { animation: desplegar 0.3s ease; }
+@keyframes desplegar { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+.cifra { margin-left: auto; font-size: 20px; font-weight: 600; color: var(--tinta); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cifra small { font-size: 12px; font-weight: 500; color: var(--tinta-3); margin-left: 6px; letter-spacing: 0; }
+.cifra.texto { font-size: 13px; font-weight: 500; color: var(--tinta-2); }
 .aciertos td:not(:first-child), .aciertos th:not(:first-child) { text-align: right; }
 .aciertos-dias td { font-size: 12px; white-space: nowrap; }
 .aciertos-dias td:last-child, .aciertos-dias th:last-child { text-align: right; }
