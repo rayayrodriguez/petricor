@@ -1,1 +1,1 @@
-{"consultado":"2026-11-25T00:15+00:00","hora":"2026-11-24T23:00+00:00","estacion":{"id":"08417","nombre":"Jaén (AEMET)","lat":37.7833,"lon":-3.8,"elev":582},"temperatura":12.1,"rocio":9.2,"humedad":82,"viento":7,"racha":18,"direccion":270,"presion":1021.7,"ww":null}
+{"consultado":"2026-11-25T01:15+00:00","hora":"2026-11-25T00:00+00:00","estacion":{"id":"08417","nombre":"Jaén (AEMET)","lat":37.7833,"lon":-3.8,"elev":582},"temperatura":11.9,"rocio":8.5,"humedad":80,"viento":7,"racha":14,"direccion":280,"presion":1021.5,"ww":null}
